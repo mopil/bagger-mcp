@@ -1,16 +1,16 @@
 # bagger-mcp
 
-Telegram-first MCP aggregator server for Claude connectors.
+Claude Connector에서 사용할 수 있는 Telegram 중심 MCP 집계 서버입니다.
 
-## Requirements
+## 요구 사항
 
-- Node.js 20+
-- A Telegram API app from `my.telegram.org/apps`
-- A pre-generated `TELEGRAM_SESSION` string
+- Node.js 20 이상
+- `my.telegram.org/apps`에서 발급한 Telegram API 앱
+- 미리 생성한 `TELEGRAM_SESSION` 문자열
 
-## Environment variables
+## 환경 변수
 
-Copy `.env.example` to `.env` and fill these values:
+`.env.example`을 `.env`로 복사한 뒤 아래 값을 채웁니다.
 
 ```bash
 MCP_API_KEY=your-random-api-key
@@ -20,67 +20,69 @@ TELEGRAM_SESSION=your-string-session
 ALLOWED_ORIGINS=https://claude.ai
 ```
 
-`PORT` is optional. The server defaults to `3000` locally and Railway will inject its own port in deployment.
-`ALLOWED_ORIGINS` is optional but recommended in deployment. Use a comma-separated list of allowed browser origins. Requests without an `Origin` header are still allowed for non-browser clients.
+`PORT`는 선택값입니다. 로컬에서는 기본값 `3000`을 사용하고, Railway 배포 시에는 Railway가 자동으로 포트를 주입합니다.  
+`ALLOWED_ORIGINS`도 선택값이지만 배포 환경에서는 설정을 권장합니다. 쉼표로 구분한 브라우저 origin 목록을 넣으면 되고, `Origin` 헤더가 없는 비브라우저 클라이언트 요청은 그대로 허용됩니다.
 
-`TELEGRAM_SESSION` is intentionally managed outside the server. Generate it once with a separate local script or REPL login flow, then store the final string in Railway.
+`TELEGRAM_SESSION`은 서버 내부에서 생성하지 않습니다. 로컬에서 1회 생성한 뒤 최종 문자열만 Railway 환경 변수에 저장하는 방식입니다.
 
-## Generate `TELEGRAM_SESSION`
+## `TELEGRAM_SESSION` 생성
 
-Set only these values first:
+먼저 아래 두 값만 준비합니다.
 
 ```bash
 TELEGRAM_API_ID=123456
 TELEGRAM_API_HASH=your-telegram-api-hash
 ```
 
-Then run:
+그 다음 아래 명령을 실행합니다.
 
 ```bash
 npm run telegram:session
 ```
 
-The script will prompt for:
+스크립트는 아래 순서로 입력을 받습니다.
 
-- phone number
-- login code sent by Telegram
-- 2FA password if enabled, entered without echo
+- 전화번호
+- Telegram이 보낸 로그인 코드
+- 2FA 비밀번호가 켜져 있다면 비밀번호 입력
 
-It will print a `TELEGRAM_SESSION` string. Save that into `.env` or Railway and do not commit it.
+2FA 비밀번호는 화면에 그대로 표시되지 않습니다.  
+실행이 끝나면 `TELEGRAM_SESSION` 문자열이 출력되며, 이 값은 `.env` 또는 Railway 환경 변수에 저장하고 절대 커밋하면 안 됩니다.
 
-## Local development
+## 로컬 개발
 
 ```bash
 npm install
 npm run dev
 ```
 
-Endpoints:
+엔드포인트:
 
 - `GET /health`
-- `POST /mcp` with header `x-api-key: {MCP_API_KEY}`
-- `GET /mcp` with headers `x-api-key` and `mcp-session-id`
-- `DELETE /mcp` with headers `x-api-key` and `mcp-session-id`
+- `POST /mcp` + `x-api-key: {MCP_API_KEY}`
+- `GET /mcp` + `x-api-key`, `mcp-session-id`
+- `DELETE /mcp` + `x-api-key`, `mcp-session-id`
 
-## MCP tools
+## MCP 도구
 
 - `telegram_list_channels()`
-  - Returns all visible Telegram dialogs with `id`, `title`, `username`, `type`, and `accessKey`
+  - 현재 세션에서 접근 가능한 Telegram dialog 목록을 반환합니다.
+  - 각 항목에는 `id`, `title`, `username`, `type`, `accessKey`가 포함됩니다.
 - `telegram_read_channel({ channel, hours?, limit? })`
-  - Resolves a dialog by username, exact title, partial title, or numeric id
-  - Returns recent messages within the requested time window
+  - username, 정확한 제목, 부분 제목, 숫자 id로 dialog를 찾습니다.
+  - 지정한 시간 범위 내 최근 메시지를 반환합니다.
 
-Both tools return a human-readable text summary plus structured JSON content.
+두 도구 모두 사람이 읽기 쉬운 텍스트 요약과 구조화된 JSON 응답을 함께 반환합니다.
 
-## Railway deployment
+## Railway 배포
 
-1. Create a GitHub repository and push this project.
-2. Create a Railway project from the GitHub repo.
-3. Add the environment variables from `.env.example`.
-4. Deploy and verify `GET /health`.
-5. Use the Railway HTTPS URL in Claude.
+1. GitHub 저장소를 만들고 이 프로젝트를 푸시합니다.
+2. Railway에서 GitHub 저장소를 연결해 프로젝트를 생성합니다.
+3. `.env.example` 기준으로 환경 변수를 등록합니다.
+4. 배포 후 `GET /health`가 정상 응답하는지 확인합니다.
+5. Railway에서 발급된 HTTPS URL을 Claude Connector에 등록합니다.
 
-Example connector settings:
+예시 Connector 설정:
 
 ```text
 URL: https://your-app.up.railway.app/mcp
