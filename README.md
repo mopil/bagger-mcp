@@ -65,10 +65,12 @@ npm run dev
 
 - `telegram_list_channels()`
   - 현재 세션에서 접근 가능한 Telegram dialog 목록을 반환합니다.
+  - `query`, `limit`으로 결과를 줄일 수 있습니다.
   - 각 항목에는 `id`, `title`, `username`, `type`, `accessKey`가 포함됩니다.
 - `telegram_read_channel({ channel, hours?, limit? })`
   - username, 정확한 제목, 부분 제목, 숫자 id로 dialog를 찾습니다.
   - 지정한 시간 범위 내 최근 메시지를 반환합니다.
+  - `includeTextPreview: false`로 설정하면 MCP 텍스트 응답을 더 짧게 줄일 수 있습니다.
 
 두 도구 모두 사람이 읽기 쉬운 텍스트 요약과 구조화된 JSON 응답을 함께 반환합니다.
 

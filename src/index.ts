@@ -15,6 +15,8 @@ const telegramService = new TelegramService({
   session: config.telegramSession,
 });
 const transports = new Map<string, StreamableHTTPServerTransport>();
+const DIALOG_TEXT_PREVIEW_LIMIT = 20;
+const MESSAGE_TEXT_PREVIEW_LIMIT = 10;
 
 const app = express();
 app.set("trust proxy", true);
@@ -125,21 +127,29 @@ function createMcpServer(): McpServer {
     version: "0.1.0",
   });
 
-  server.tool("telegram_list_channels", "List Telegram dialogs available to the configured session.", {}, async () => {
-    const dialogs = await telegramService.listDialogs();
+  server.tool(
+    "telegram_list_channels",
+    "List Telegram dialogs available to the configured session.",
+    {
+      query: z.string().min(1).optional(),
+      limit: z.number().int().min(1).max(200).optional(),
+    },
+    async ({ query, limit }) => {
+      const dialogs = await telegramService.listDialogs({ query, limit });
 
-    return {
-      content: [
-        {
-          type: "text",
-          text: formatDialogsText(dialogs),
+      return {
+        content: [
+          {
+            type: "text",
+            text: formatDialogsText(dialogs),
+          },
+        ],
+        structuredContent: {
+          dialogs,
         },
-      ],
-      structuredContent: {
-        dialogs,
-      },
-    };
-  });
+      };
+    },
+  );
 
   server.tool(
     "telegram_read_channel",
@@ -148,17 +158,25 @@ function createMcpServer(): McpServer {
       channel: z.string().min(1),
       hours: z.number().positive().optional(),
       limit: z.number().int().min(1).max(200).optional(),
+      includeTextPreview: z.boolean().optional(),
     },
-    async ({ channel, hours, limit }) => {
+    async ({ channel, hours, limit, includeTextPreview }) => {
       const result = await telegramService.readChannel({ channel, hours, limit });
 
       return {
-        content: [
-          {
-            type: "text",
-            text: formatMessagesText(result.dialog.title, result.messages),
-          },
-        ],
+        content: includeTextPreview === false
+          ? [
+              {
+                type: "text",
+                text: `Recent messages for ${result.dialog.title}: ${result.messages.length} found. Full data is in structuredContent.`,
+              },
+            ]
+          : [
+              {
+                type: "text",
+                text: formatMessagesText(result.dialog.title, result.messages),
+              },
+            ],
         structuredContent: result,
       };
     },
@@ -224,12 +242,18 @@ function formatDialogsText(dialogs: Awaited<ReturnType<TelegramService["listDial
     return "No Telegram dialogs found.";
   }
 
-  return dialogs
+  const preview = dialogs
+    .slice(0, DIALOG_TEXT_PREVIEW_LIMIT)
     .map((dialog) => {
       const username = dialog.username ? ` @${dialog.username}` : "";
       return `${dialog.title}${username} [${dialog.type}] id=${dialog.id}`;
     })
     .join("\n");
+  const suffix = dialogs.length > DIALOG_TEXT_PREVIEW_LIMIT
+    ? `\n... ${dialogs.length - DIALOG_TEXT_PREVIEW_LIMIT} more dialogs in structuredContent`
+    : "";
+
+  return `Found ${dialogs.length} dialogs.\n${preview}${suffix}`;
 }
 
 function formatMessagesText(
@@ -240,9 +264,16 @@ function formatMessagesText(
     return `No messages found for ${dialogTitle} in the requested time window.`;
   }
 
-  const lines = messages.map((message) => {
+  const preview = messages.slice(0, MESSAGE_TEXT_PREVIEW_LIMIT);
+  const lines = preview.map((message) => {
     return `[${message.date}] ${message.sender ?? "unknown"}: ${message.text || "(no text)"}`;
   });
+  const suffix = messages.length > MESSAGE_TEXT_PREVIEW_LIMIT
+    ? `\n... ${messages.length - MESSAGE_TEXT_PREVIEW_LIMIT} more messages in structuredContent`
+    : "";
 
-  return [`Recent messages for ${dialogTitle}:`, ...lines].join("\n");
+  return [
+    `Recent messages for ${dialogTitle}: ${messages.length} found.`,
+    ...lines,
+  ].join("\n") + suffix;
 }

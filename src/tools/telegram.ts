@@ -34,6 +34,13 @@ export interface TelegramReadChannelParams {
   limit?: number;
 }
 
+export interface TelegramListDialogsParams {
+  query?: string;
+  limit?: number;
+}
+
+const DIALOG_CACHE_TTL_MS = 60_000;
+
 function normalize(value: string): string {
   return value.trim().toLowerCase();
 }
@@ -42,39 +49,27 @@ export class TelegramService {
   private readonly options: TelegramClientOptions;
   private client: TelegramClient | null = null;
   private connectPromise: Promise<boolean> | null = null;
+  private dialogsCache:
+    | {
+        expiresAt: number;
+        dialogs: TelegramDialogSummary[];
+      }
+    | null = null;
 
   constructor(options: TelegramClientOptions) {
     this.options = options;
   }
 
-  async listDialogs(): Promise<TelegramDialogSummary[]> {
-    await this.ensureConnected();
-    const client = this.getOrCreateClient();
+  async listDialogs(params: TelegramListDialogsParams = {}): Promise<TelegramDialogSummary[]> {
+    const dialogs = await this.getDialogsCached();
+    const query = normalizeQuery(params.query);
+    const limit = normalizeDialogsLimit(params.limit);
 
-    const dialogs = await client.getDialogs({});
+    const filteredDialogs = query
+      ? dialogs.filter((dialog) => matchesDialogQuery(dialog, query))
+      : dialogs;
 
-    return dialogs
-      .map((dialog) => {
-        const entity = dialog.entity;
-        if (!entity) {
-          return null;
-        }
-
-        const type = getDialogType(entity);
-        const title = getDialogTitle(dialog);
-        const username = getEntityUsername(entity);
-        const id = String(getEntityId(entity));
-
-        return {
-          id,
-          title,
-          username,
-          type,
-          accessKey: username ?? id,
-        } satisfies TelegramDialogSummary;
-      })
-      .filter((dialog): dialog is TelegramDialogSummary => dialog !== null)
-      .sort((left, right) => left.title.localeCompare(right.title));
+    return filteredDialogs.slice(0, limit);
   }
 
   async readChannel(params: TelegramReadChannelParams): Promise<{
@@ -84,7 +79,7 @@ export class TelegramService {
     await this.ensureConnected();
     const client = this.getOrCreateClient();
 
-    const dialogs = await this.listDialogs();
+    const dialogs = await this.getDialogsCached();
     const dialog = resolveDialog(dialogs, params.channel);
     const cutoffTime = Date.now() - normalizeHours(params.hours) * 60 * 60 * 1000;
     const limit = normalizeLimit(params.limit);
@@ -130,6 +125,45 @@ export class TelegramService {
     await this.connectPromise;
   }
 
+  private async getDialogsCached(): Promise<TelegramDialogSummary[]> {
+    await this.ensureConnected();
+
+    if (this.dialogsCache && this.dialogsCache.expiresAt > Date.now()) {
+      return this.dialogsCache.dialogs;
+    }
+
+    const client = this.getOrCreateClient();
+    const dialogs = (await client.getDialogs({}))
+      .map((dialog) => {
+        const entity = dialog.entity;
+        if (!entity) {
+          return null;
+        }
+
+        const type = getDialogType(entity);
+        const title = getDialogTitle(dialog);
+        const username = getEntityUsername(entity);
+        const id = String(getEntityId(entity));
+
+        return {
+          id,
+          title,
+          username,
+          type,
+          accessKey: username ?? id,
+        } satisfies TelegramDialogSummary;
+      })
+      .filter((dialog): dialog is TelegramDialogSummary => dialog !== null)
+      .sort((left, right) => left.title.localeCompare(right.title));
+
+    this.dialogsCache = {
+      dialogs,
+      expiresAt: Date.now() + DIALOG_CACHE_TTL_MS,
+    };
+
+    return dialogs;
+  }
+
   private getOrCreateClient(): TelegramClient {
     if (this.client) {
       return this.client;
@@ -162,6 +196,32 @@ function normalizeLimit(limit = 50): number {
   }
 
   return limit;
+}
+
+function normalizeDialogsLimit(limit = 100): number {
+  if (!Number.isInteger(limit) || limit <= 0 || limit > 200) {
+    throw new Error("limit must be an integer between 1 and 200");
+  }
+
+  return limit;
+}
+
+function normalizeQuery(query: string | undefined): string | null {
+  if (query === undefined) {
+    return null;
+  }
+
+  const normalized = normalize(query);
+  return normalized.length > 0 ? normalized : null;
+}
+
+function matchesDialogQuery(dialog: TelegramDialogSummary, query: string): boolean {
+  return (
+    normalize(dialog.id) === query ||
+    normalize(dialog.accessKey) === query ||
+    normalize(dialog.title).includes(query) ||
+    (dialog.username !== null && normalize(dialog.username).includes(query))
+  );
 }
 
 function resolveDialog(
