@@ -15,7 +15,7 @@ function requireEnv(name: string): EnvValue {
 
 export interface AppConfig {
   port: number;
-  apiKey: string;
+  pathSecret: string;
   telegramApiId: number;
   telegramApiHash: string;
   telegramSession: string;
@@ -35,7 +35,7 @@ export function getConfig(): AppConfig {
 
   return {
     port,
-    apiKey: requireEnv("BAGGER_MCP_API_KEY"),
+    pathSecret: requireEnv("MCP_PATH_SECRET"),
     telegramApiId,
     telegramApiHash: requireEnv("TELEGRAM_API_HASH"),
     telegramSession: requireEnv("TELEGRAM_SESSION"),

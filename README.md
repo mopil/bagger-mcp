@@ -13,7 +13,7 @@ Claude Connector에서 사용할 수 있는 Telegram 중심 MCP 서버입니다.
 `.env.example`을 `.env`로 복사한 뒤 아래 값을 채웁니다.
 
 ```bash
-BAGGER_MCP_API_KEY=your-random-api-key
+MCP_PATH_SECRET=your-long-random-secret
 TELEGRAM_API_ID=123456
 TELEGRAM_API_HASH=your-telegram-api-hash
 TELEGRAM_SESSION=your-string-session
@@ -57,9 +57,9 @@ npm run dev
 엔드포인트:
 
 - `GET /health`
-- `POST /mcp` + `x-api-key: {BAGGER_MCP_API_KEY}`
-- `GET /mcp` + `x-api-key`, `mcp-session-id`
-- `DELETE /mcp` + `x-api-key`, `mcp-session-id`
+- `POST /mcp/{MCP_PATH_SECRET}`
+- `GET /mcp/{MCP_PATH_SECRET}` + `mcp-session-id`
+- `DELETE /mcp/{MCP_PATH_SECRET}` + `mcp-session-id`
 
 ## MCP 도구
 
@@ -83,6 +83,5 @@ npm run dev
 예시 Connector 설정:
 
 ```text
-URL: https://your-app.up.railway.app/mcp
-Header: x-api-key: {BAGGER_MCP_API_KEY}
+URL: https://your-app.up.railway.app/mcp/{MCP_PATH_SECRET}
 ```

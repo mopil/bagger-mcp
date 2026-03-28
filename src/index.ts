@@ -5,7 +5,6 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 
-import { createApiKeyMiddleware } from "./auth.js";
 import { getConfig } from "./config.js";
 import { TelegramService } from "./tools/telegram.js";
 
@@ -25,9 +24,9 @@ app.get("/health", (_req: Request, res: Response) => {
   res.status(200).json({ ok: true });
 });
 
-const apiKeyMiddleware = createApiKeyMiddleware(config.apiKey);
+const mcpPath = `/mcp/${config.pathSecret}`;
 
-app.post("/mcp", apiKeyMiddleware, async (req: Request, res: Response) => {
+app.post(mcpPath, async (req: Request, res: Response) => {
   const sessionId = req.header("mcp-session-id");
   try {
     const transport = await getOrCreateTransport(sessionId, req.body, res);
@@ -46,7 +45,7 @@ app.post("/mcp", apiKeyMiddleware, async (req: Request, res: Response) => {
   }
 });
 
-app.get("/mcp", apiKeyMiddleware, async (req: Request, res: Response) => {
+app.get(mcpPath, async (req: Request, res: Response) => {
   const sessionId = req.header("mcp-session-id");
 
   if (!sessionId) {
@@ -78,7 +77,7 @@ app.get("/mcp", apiKeyMiddleware, async (req: Request, res: Response) => {
   }
 });
 
-app.delete("/mcp", apiKeyMiddleware, async (req: Request, res: Response) => {
+app.delete(mcpPath, async (req: Request, res: Response) => {
   const sessionId = req.header("mcp-session-id");
 
   if (!sessionId) {
