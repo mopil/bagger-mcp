@@ -19,7 +19,6 @@ export interface AppConfig {
   telegramApiId: number;
   telegramApiHash: string;
   telegramSession: string;
-  allowedOrigins: string[];
 }
 
 export function getConfig(): AppConfig {
@@ -36,13 +35,9 @@ export function getConfig(): AppConfig {
 
   return {
     port,
-    apiKey: requireEnv("MCP_API_KEY"),
+    apiKey: requireEnv("BAGGER_MCP_API_KEY"),
     telegramApiId,
     telegramApiHash: requireEnv("TELEGRAM_API_HASH"),
     telegramSession: requireEnv("TELEGRAM_SESSION"),
-    allowedOrigins: (process.env.ALLOWED_ORIGINS ?? "")
-      .split(",")
-      .map((origin) => origin.trim())
-      .filter((origin) => origin.length > 0),
   };
 }

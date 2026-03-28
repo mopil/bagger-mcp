@@ -39,24 +39,19 @@ function normalize(value: string): string {
 }
 
 export class TelegramService {
-  private readonly client: TelegramClient;
+  private readonly options: TelegramClientOptions;
+  private client: TelegramClient | null = null;
   private connectPromise: Promise<boolean> | null = null;
 
   constructor(options: TelegramClientOptions) {
-    this.client = new TelegramClient(
-      new StringSession(options.session),
-      options.apiId,
-      options.apiHash,
-      {
-        connectionRetries: 5,
-      },
-    );
+    this.options = options;
   }
 
   async listDialogs(): Promise<TelegramDialogSummary[]> {
     await this.ensureConnected();
+    const client = this.getOrCreateClient();
 
-    const dialogs = await this.client.getDialogs({});
+    const dialogs = await client.getDialogs({});
 
     return dialogs
       .map((dialog) => {
@@ -87,13 +82,14 @@ export class TelegramService {
     messages: TelegramMessageSummary[];
   }> {
     await this.ensureConnected();
+    const client = this.getOrCreateClient();
 
     const dialogs = await this.listDialogs();
     const dialog = resolveDialog(dialogs, params.channel);
     const cutoffTime = Date.now() - normalizeHours(params.hours) * 60 * 60 * 1000;
     const limit = normalizeLimit(params.limit);
 
-    const messages = await this.client.getMessages(dialog.accessKey, { limit });
+    const messages = await client.getMessages(dialog.accessKey, { limit });
 
     const summarizedMessages = messages
       .filter((message) => message?.date)
@@ -122,14 +118,33 @@ export class TelegramService {
   }
 
   private async ensureConnected(): Promise<void> {
+    const client = this.getOrCreateClient();
+
     if (!this.connectPromise) {
-      this.connectPromise = this.client.connect().catch((error: unknown) => {
+      this.connectPromise = client.connect().catch((error: unknown) => {
         this.connectPromise = null;
         throw error;
       });
     }
 
     await this.connectPromise;
+  }
+
+  private getOrCreateClient(): TelegramClient {
+    if (this.client) {
+      return this.client;
+    }
+
+    this.client = new TelegramClient(
+      new StringSession(this.options.session),
+      this.options.apiId,
+      this.options.apiHash,
+      {
+        connectionRetries: 5,
+      },
+    );
+
+    return this.client;
   }
 }
 

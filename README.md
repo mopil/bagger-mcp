@@ -1,6 +1,6 @@
-# bagger-mcp
+﻿# bagger-mcp
 
-Claude Connector에서 사용할 수 있는 Telegram 중심 MCP 집계 서버입니다.
+Claude Connector에서 사용할 수 있는 Telegram 중심 MCP 서버입니다.
 
 ## 요구 사항
 
@@ -13,17 +13,15 @@ Claude Connector에서 사용할 수 있는 Telegram 중심 MCP 집계 서버입
 `.env.example`을 `.env`로 복사한 뒤 아래 값을 채웁니다.
 
 ```bash
-MCP_API_KEY=your-random-api-key
+BAGGER_MCP_API_KEY=your-random-api-key
 TELEGRAM_API_ID=123456
 TELEGRAM_API_HASH=your-telegram-api-hash
 TELEGRAM_SESSION=your-string-session
-ALLOWED_ORIGINS=https://claude.ai
 ```
 
-`PORT`는 선택값입니다. 로컬에서는 기본값 `3000`을 사용하고, Railway 배포 시에는 Railway가 자동으로 포트를 주입합니다.  
-`ALLOWED_ORIGINS`도 선택값이지만 배포 환경에서는 설정을 권장합니다. 쉼표로 구분한 브라우저 origin 목록을 넣으면 되고, `Origin` 헤더가 없는 비브라우저 클라이언트 요청은 그대로 허용됩니다.
+`PORT`는 선택값입니다. 로컬에서는 기본값 `3000`을 사용하고, Railway 배포 시에는 Railway가 자동으로 포트를 주입합니다.
 
-`TELEGRAM_SESSION`은 서버 내부에서 생성하지 않습니다. 로컬에서 1회 생성한 뒤 최종 문자열만 Railway 환경 변수에 저장하는 방식입니다.
+`TELEGRAM_SESSION`은 서버 내부에서 생성하지 않습니다. 로컬에서 1회 생성한 뒤 최종 문자열만 `.env` 또는 Railway 환경 변수에 저장하는 방식입니다.
 
 ## `TELEGRAM_SESSION` 생성
 
@@ -46,8 +44,8 @@ npm run telegram:session
 - Telegram이 보낸 로그인 코드
 - 2FA 비밀번호가 켜져 있다면 비밀번호 입력
 
-2FA 비밀번호는 화면에 그대로 표시되지 않습니다.  
-실행이 끝나면 `TELEGRAM_SESSION` 문자열이 출력되며, 이 값은 `.env` 또는 Railway 환경 변수에 저장하고 절대 커밋하면 안 됩니다.
+2FA 비밀번호는 화면에 그대로 표시되지 않습니다.
+로그인이 끝나면 `TELEGRAM_SESSION`을 출력하고, 동시에 `.env`의 `TELEGRAM_SESSION` 값도 자동으로 갱신합니다.
 
 ## 로컬 개발
 
@@ -59,7 +57,7 @@ npm run dev
 엔드포인트:
 
 - `GET /health`
-- `POST /mcp` + `x-api-key: {MCP_API_KEY}`
+- `POST /mcp` + `x-api-key: {BAGGER_MCP_API_KEY}`
 - `GET /mcp` + `x-api-key`, `mcp-session-id`
 - `DELETE /mcp` + `x-api-key`, `mcp-session-id`
 
@@ -86,5 +84,5 @@ npm run dev
 
 ```text
 URL: https://your-app.up.railway.app/mcp
-Header: x-api-key: {MCP_API_KEY}
+Header: x-api-key: {BAGGER_MCP_API_KEY}
 ```

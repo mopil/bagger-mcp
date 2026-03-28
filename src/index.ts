@@ -7,7 +7,6 @@ import { z } from "zod";
 
 import { createApiKeyMiddleware } from "./auth.js";
 import { getConfig } from "./config.js";
-import { createOriginGuard } from "./origin.js";
 import { TelegramService } from "./tools/telegram.js";
 
 const config = getConfig();
@@ -27,9 +26,8 @@ app.get("/health", (_req: Request, res: Response) => {
 });
 
 const apiKeyMiddleware = createApiKeyMiddleware(config.apiKey);
-const originGuard = createOriginGuard(config.allowedOrigins);
 
-app.post("/mcp", originGuard, apiKeyMiddleware, async (req: Request, res: Response) => {
+app.post("/mcp", apiKeyMiddleware, async (req: Request, res: Response) => {
   const sessionId = req.header("mcp-session-id");
   try {
     const transport = await getOrCreateTransport(sessionId, req.body, res);
@@ -48,7 +46,7 @@ app.post("/mcp", originGuard, apiKeyMiddleware, async (req: Request, res: Respon
   }
 });
 
-app.get("/mcp", originGuard, apiKeyMiddleware, async (req: Request, res: Response) => {
+app.get("/mcp", apiKeyMiddleware, async (req: Request, res: Response) => {
   const sessionId = req.header("mcp-session-id");
 
   if (!sessionId) {
@@ -80,7 +78,7 @@ app.get("/mcp", originGuard, apiKeyMiddleware, async (req: Request, res: Respons
   }
 });
 
-app.delete("/mcp", originGuard, apiKeyMiddleware, async (req: Request, res: Response) => {
+app.delete("/mcp", apiKeyMiddleware, async (req: Request, res: Response) => {
   const sessionId = req.header("mcp-session-id");
 
   if (!sessionId) {

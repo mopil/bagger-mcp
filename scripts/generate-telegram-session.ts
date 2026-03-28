@@ -1,11 +1,15 @@
 import { config as loadEnv } from "dotenv";
 import { Buffer } from "node:buffer";
+import { readFile, writeFile } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
 import input from "node:readline/promises";
 import { stdin as inputStream, stdout as outputStream } from "node:process";
+import { fileURLToPath } from "node:url";
 import { TelegramClient } from "telegram";
 import { StringSession } from "telegram/sessions/index.js";
 
 loadEnv();
+const envFilePath = resolve(dirname(fileURLToPath(import.meta.url)), "..", ".env");
 
 function requireEnv(name: string): string {
   const value = process.env[name]?.trim();
@@ -45,9 +49,12 @@ async function main(): Promise<void> {
       },
     });
 
+    const savedSession = session.save();
+    await upsertEnvValue("TELEGRAM_SESSION", savedSession);
+
     console.log("\nTELEGRAM_SESSION:");
-    console.log(session.save());
-    console.log("\nStore this value in .env or Railway as TELEGRAM_SESSION.");
+    console.log(savedSession);
+    console.log(`\nSaved TELEGRAM_SESSION to ${envFilePath}.`);
   } finally {
     rl.close();
     await client.disconnect();
@@ -103,4 +110,40 @@ async function promptHidden(question: string): Promise<string> {
 
     inputStream.on("data", onData);
   });
+}
+
+async function upsertEnvValue(key: string, value: string): Promise<void> {
+  let envContent = "";
+
+  try {
+    envContent = await readFile(envFilePath, "utf8");
+  } catch (error: unknown) {
+    const errorCode = typeof error === "object" && error !== null && "code" in error
+      ? String(error.code)
+      : "";
+
+    if (errorCode !== "ENOENT") {
+      throw error;
+    }
+  }
+
+  const line = `${key}=${value}`;
+  const pattern = new RegExp(`^${escapeRegExp(key)}=.*$`, "m");
+  const nextContent = pattern.test(envContent)
+    ? envContent.replace(pattern, line)
+    : appendEnvLine(envContent, line);
+
+  await writeFile(envFilePath, nextContent, "utf8");
+}
+
+function appendEnvLine(content: string, line: string): string {
+  if (content.length === 0) {
+    return `${line}\n`;
+  }
+
+  return content.endsWith("\n") ? `${content}${line}\n` : `${content}\n${line}\n`;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
