@@ -5,7 +5,7 @@ import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 
 import type { AppConfig } from "../config.js";
 import { createMcpServer } from "../mcp/createServer.js";
-import { TelegramService } from "../tools/telegram.js";
+import { TelegramService } from "../tools/telegram/service.js";
 
 export function createApp(config: AppConfig) {
   const telegramService = new TelegramService({
