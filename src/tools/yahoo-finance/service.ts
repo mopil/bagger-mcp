@@ -9,6 +9,7 @@ export interface HistoricalStockPricesParams {
   fromDate: string;
   toDate?: string;
   interval?: HistoricalInterval;
+  limit?: number;
 }
 
 export interface StockInfoParams {
@@ -24,6 +25,7 @@ export interface StockActionsParams {
   symbol: string;
   fromDate: string;
   toDate?: string;
+  limit?: number;
 }
 
 export interface FinancialStatementParams {
@@ -32,6 +34,7 @@ export interface FinancialStatementParams {
   frequency?: FinancialStatementFrequency;
   fromDate: string;
   toDate?: string;
+  limit?: number;
 }
 
 export interface HolderInfoParams {
@@ -42,59 +45,141 @@ export interface RecommendationsParams {
   symbol: string;
 }
 
-const DEFAULT_NEWS_COUNT = 10;
+const DEFAULT_NEWS_COUNT = 5;
+const DEFAULT_HISTORICAL_LIMIT = 120;
+const DEFAULT_ACTIONS_LIMIT = 20;
+const DEFAULT_FINANCIAL_STATEMENT_LIMIT = 8;
+const MAX_NEWS_COUNT = 20;
+const MAX_HISTORICAL_LIMIT = 1000;
+const MAX_ACTIONS_LIMIT = 200;
+const MAX_FINANCIAL_STATEMENT_LIMIT = 40;
+const YAHOO_REQUEST_TIMEOUT_MS = 15_000;
+const YAHOO_CACHE_TTL_MS = 5 * 60 * 1000;
+const BUSINESS_SUMMARY_LIMIT = 1200;
+
+interface CacheEntry<T> {
+  expiresAt: number;
+  value: T;
+}
 
 export class YahooFinanceService {
   private readonly client = new YahooFinance();
+  private readonly cache = new Map<string, CacheEntry<unknown>>();
+  private readonly inFlight = new Map<string, Promise<unknown>>();
 
   async getHistoricalStockPrices(params: HistoricalStockPricesParams) {
     validateDateRange(params.fromDate, params.toDate);
+    const limit = normalizeHistoricalLimit(params.limit);
 
-    const rows = await this.client.historical(params.symbol, {
-      period1: params.fromDate,
-      ...(params.toDate ? { period2: params.toDate } : {}),
-      ...(params.interval ? { interval: params.interval } : {}),
-      events: "history",
-    });
+    const cacheKey = buildCacheKey("historical", { ...params, limit });
+    const rows = await this.getCached(cacheKey, () =>
+      withTimeout(
+        this.client.historical(params.symbol, {
+          period1: params.fromDate,
+          ...(params.toDate ? { period2: params.toDate } : {}),
+          ...(params.interval ? { interval: params.interval } : {}),
+          events: "history",
+        }),
+        YAHOO_REQUEST_TIMEOUT_MS,
+        "Yahoo Finance historical request timed out.",
+      ));
 
     return {
       symbol: params.symbol.toUpperCase(),
       interval: params.interval ?? "1d",
       fromDate: params.fromDate,
       toDate: params.toDate ?? null,
-      prices: rows.map((row) => ({
-        date: row.date.toISOString(),
-        open: row.open,
-        high: row.high,
-        low: row.low,
-        close: row.close,
-        adjClose: row.adjClose ?? null,
-        volume: row.volume,
-      })),
+      prices: rows
+        .map((row) => ({
+          date: row.date.toISOString(),
+          open: row.open,
+          high: row.high,
+          low: row.low,
+          close: row.close,
+          adjClose: row.adjClose ?? null,
+          volume: row.volume,
+        }))
+        .sort((left, right) => right.date.localeCompare(left.date))
+        .slice(0, limit),
     };
   }
 
   async getStockInfo(params: StockInfoParams) {
-    const [quote, summary] = await Promise.all([
-      this.client.quote(params.symbol),
-      this.client.quoteSummary(params.symbol, {
-        modules: ["price", "summaryDetail", "summaryProfile", "financialData", "defaultKeyStatistics"],
-      }),
-    ]);
+    const cacheKey = buildCacheKey("stock-info", params);
+    return this.getCached(cacheKey, async () => {
+      const [quote, summary] = await withTimeout(
+        Promise.all([
+          this.client.quote(params.symbol),
+          this.client.quoteSummary(params.symbol, {
+            modules: ["price", "summaryDetail", "summaryProfile", "financialData", "defaultKeyStatistics"],
+          }),
+        ]),
+        YAHOO_REQUEST_TIMEOUT_MS,
+        "Yahoo Finance stock info request timed out.",
+      );
 
-    return {
-      symbol: quote.symbol,
-      quote,
-      summary,
-    };
+      return {
+        symbol: quote.symbol,
+        companyName: quote.longName ?? quote.shortName ?? quote.symbol,
+        exchange: quote.fullExchangeName,
+        currency: quote.currency ?? null,
+        marketState: quote.marketState,
+        price: {
+          regularMarketPrice: quote.regularMarketPrice ?? null,
+          regularMarketChange: quote.regularMarketChange ?? null,
+          regularMarketChangePercent: quote.regularMarketChangePercent ?? null,
+          regularMarketOpen: quote.regularMarketOpen ?? null,
+          regularMarketDayHigh: quote.regularMarketDayHigh ?? null,
+          regularMarketDayLow: quote.regularMarketDayLow ?? null,
+          regularMarketVolume: quote.regularMarketVolume ?? null,
+          marketCap: quote.marketCap ?? null,
+          fiftyTwoWeekLow: quote.fiftyTwoWeekLow ?? null,
+          fiftyTwoWeekHigh: quote.fiftyTwoWeekHigh ?? null,
+        },
+        valuation: {
+          trailingPE: quote.trailingPE ?? summary.summaryDetail?.trailingPE ?? null,
+          forwardPE: quote.forwardPE ?? summary.summaryDetail?.forwardPE ?? null,
+          priceToBook: quote.priceToBook ?? summary.defaultKeyStatistics?.priceToBook ?? null,
+          enterpriseToEbitda: summary.defaultKeyStatistics?.enterpriseToEbitda ?? null,
+          enterpriseToRevenue: summary.defaultKeyStatistics?.enterpriseToRevenue ?? null,
+        },
+        business: {
+          sector: summary.summaryProfile?.sector ?? null,
+          industry: summary.summaryProfile?.industry ?? null,
+          website: summary.summaryProfile?.website ?? null,
+          country: summary.summaryProfile?.country ?? null,
+          employees: summary.summaryProfile?.fullTimeEmployees ?? null,
+          longBusinessSummary: truncateText(summary.summaryProfile?.longBusinessSummary ?? null, BUSINESS_SUMMARY_LIMIT),
+        },
+        financials: {
+          totalRevenue: summary.financialData?.totalRevenue ?? null,
+          revenueGrowth: summary.financialData?.revenueGrowth ?? null,
+          grossMargins: summary.financialData?.grossMargins ?? null,
+          operatingMargins: summary.financialData?.operatingMargins ?? null,
+          profitMargins: summary.financialData?.profitMargins ?? null,
+          returnOnEquity: summary.financialData?.returnOnEquity ?? null,
+          returnOnAssets: summary.financialData?.returnOnAssets ?? null,
+          debtToEquity: summary.financialData?.debtToEquity ?? null,
+          currentRatio: summary.financialData?.currentRatio ?? null,
+          freeCashflow: summary.financialData?.freeCashflow ?? null,
+          operatingCashflow: summary.financialData?.operatingCashflow ?? null,
+        },
+      };
+    });
   }
 
   async getYahooFinanceNews(params: YahooFinanceNewsParams) {
     const newsCount = normalizeNewsCount(params.newsCount);
-    const result = await this.client.search(params.query, {
-      newsCount,
-      quotesCount: 0,
-    });
+    const cacheKey = buildCacheKey("news", { ...params, newsCount });
+    const result = await this.getCached(cacheKey, () =>
+      withTimeout(
+        this.client.search(params.query, {
+          newsCount,
+          quotesCount: 0,
+        }),
+        YAHOO_REQUEST_TIMEOUT_MS,
+        "Yahoo Finance news request timed out.",
+      ));
 
     return {
       query: params.query,
@@ -113,32 +198,44 @@ export class YahooFinanceService {
 
   async getStockActions(params: StockActionsParams) {
     validateDateRange(params.fromDate, params.toDate);
-
-    const [dividends, splits] = await Promise.all([
-      this.client.historical(params.symbol, {
-        period1: params.fromDate,
-        ...(params.toDate ? { period2: params.toDate } : {}),
-        events: "dividends",
-      }),
-      this.client.historical(params.symbol, {
-        period1: params.fromDate,
-        ...(params.toDate ? { period2: params.toDate } : {}),
-        events: "split",
-      }),
-    ]);
+    const limit = normalizeActionsLimit(params.limit);
+    const cacheKey = buildCacheKey("actions", { ...params, limit });
+    const [dividends, splits] = await this.getCached(cacheKey, () =>
+      withTimeout(
+        Promise.all([
+          this.client.historical(params.symbol, {
+            period1: params.fromDate,
+            ...(params.toDate ? { period2: params.toDate } : {}),
+            events: "dividends",
+          }),
+          this.client.historical(params.symbol, {
+            period1: params.fromDate,
+            ...(params.toDate ? { period2: params.toDate } : {}),
+            events: "split",
+          }),
+        ]),
+        YAHOO_REQUEST_TIMEOUT_MS,
+        "Yahoo Finance stock actions request timed out.",
+      ));
 
     return {
       symbol: params.symbol.toUpperCase(),
       fromDate: params.fromDate,
       toDate: params.toDate ?? null,
-      dividends: dividends.map((row) => ({
-        date: row.date.toISOString(),
-        dividends: row.dividends,
-      })),
-      splits: splits.map((row) => ({
-        date: row.date.toISOString(),
-        stockSplits: row.stockSplits,
-      })),
+      dividends: dividends
+        .map((row) => ({
+          date: row.date.toISOString(),
+          dividends: row.dividends,
+        }))
+        .sort((left, right) => right.date.localeCompare(left.date))
+        .slice(0, limit),
+      splits: splits
+        .map((row) => ({
+          date: row.date.toISOString(),
+          stockSplits: row.stockSplits,
+        }))
+        .sort((left, right) => right.date.localeCompare(left.date))
+        .slice(0, limit),
     };
   }
 
@@ -146,12 +243,24 @@ export class YahooFinanceService {
     validateDateRange(params.fromDate, params.toDate);
 
     const frequency = params.frequency ?? "quarterly";
-    const rows = await this.client.fundamentalsTimeSeries(params.symbol, {
-      period1: params.fromDate,
-      ...(params.toDate ? { period2: params.toDate } : {}),
-      type: frequency,
-      module: mapStatementTypeToModule(params.statementType),
-    });
+    const limit = normalizeFinancialStatementLimit(params.limit);
+    const cacheKey = buildCacheKey("financial-statement", { ...params, frequency, limit });
+    const rows = await this.getCached(cacheKey, () =>
+      withTimeout(
+        this.client.fundamentalsTimeSeries(params.symbol, {
+          period1: params.fromDate,
+          ...(params.toDate ? { period2: params.toDate } : {}),
+          type: frequency,
+          module: mapStatementTypeToModule(params.statementType),
+        }),
+        YAHOO_REQUEST_TIMEOUT_MS,
+        "Yahoo Finance financial statement request timed out.",
+      ));
+
+    const statements = rows
+      .map((row) => serializeRecord(row))
+      .sort((left, right) => String(right.date).localeCompare(String(left.date)))
+      .slice(0, limit);
 
     return {
       symbol: params.symbol.toUpperCase(),
@@ -159,43 +268,137 @@ export class YahooFinanceService {
       frequency,
       fromDate: params.fromDate,
       toDate: params.toDate ?? null,
-      statements: rows.map((row) => serializeRecord(row)),
+      statements,
+      rowCount: statements.length,
     };
   }
 
   async getHolderInfo(params: HolderInfoParams) {
-    const summary = await this.client.quoteSummary(params.symbol, {
-      modules: [
-        "institutionOwnership",
-        "fundOwnership",
-        "majorHoldersBreakdown",
-        "insiderHolders",
-        "majorDirectHolders",
-      ],
-    });
+    const cacheKey = buildCacheKey("holder-info", params);
+    return this.getCached(cacheKey, async () => {
+      const summary = await withTimeout(
+        this.client.quoteSummary(params.symbol, {
+          modules: [
+            "institutionOwnership",
+            "fundOwnership",
+            "majorHoldersBreakdown",
+            "insiderHolders",
+            "majorDirectHolders",
+          ],
+        }),
+        YAHOO_REQUEST_TIMEOUT_MS,
+        "Yahoo Finance holder info request timed out.",
+      );
 
-    return {
-      symbol: params.symbol.toUpperCase(),
-      summary,
-    };
+      return {
+        symbol: params.symbol.toUpperCase(),
+        majorHoldersBreakdown: {
+          insidersPercentHeld: summary.majorHoldersBreakdown?.insidersPercentHeld ?? null,
+          institutionsPercentHeld: summary.majorHoldersBreakdown?.institutionsPercentHeld ?? null,
+          institutionsFloatPercentHeld: summary.majorHoldersBreakdown?.institutionsFloatPercentHeld ?? null,
+          institutionsCount: summary.majorHoldersBreakdown?.institutionsCount ?? null,
+        },
+        topInstitutionOwners: (summary.institutionOwnership?.ownershipList ?? [])
+          .slice(0, 5)
+          .map((holder) => ({
+            organization: holder.organization ?? null,
+            reportDate: holder.reportDate instanceof Date ? holder.reportDate.toISOString() : null,
+            pctHeld: holder.pctHeld ?? null,
+            position: holder.position ?? null,
+            value: holder.value ?? null,
+          })),
+        topFundOwners: (summary.fundOwnership?.ownershipList ?? [])
+          .slice(0, 5)
+          .map((holder) => ({
+            organization: holder.organization ?? null,
+            reportDate: holder.reportDate instanceof Date ? holder.reportDate.toISOString() : null,
+            pctHeld: holder.pctHeld ?? null,
+            position: holder.position ?? null,
+            value: holder.value ?? null,
+          })),
+        insiderHolders: (summary.insiderHolders?.holders ?? [])
+          .slice(0, 5)
+          .map((holder) => serializeRecord(holder)),
+        majorDirectHolders: (summary.majorDirectHolders?.holders ?? [])
+          .slice(0, 5)
+          .map((holder) => serializeRecord(holder)),
+      };
+    });
   }
 
   async getRecommendations(params: RecommendationsParams) {
-    const result = await this.client.recommendationsBySymbol(params.symbol);
+    const cacheKey = buildCacheKey("recommendations", params);
+    const result = await this.getCached(cacheKey, () =>
+      withTimeout(
+        this.client.recommendationsBySymbol(params.symbol),
+        YAHOO_REQUEST_TIMEOUT_MS,
+        "Yahoo Finance recommendations request timed out.",
+      ));
 
     return {
       symbol: result.symbol,
-      recommendedSymbols: result.recommendedSymbols,
+      recommendedSymbols: result.recommendedSymbols.slice(0, 5),
     };
+  }
+
+  private async getCached<T>(key: string, loader: () => Promise<T>): Promise<T> {
+    const cached = this.cache.get(key);
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.value as T;
+    }
+
+    const inFlight = this.inFlight.get(key);
+    if (inFlight) {
+      return inFlight as Promise<T>;
+    }
+
+    const promise = loader()
+      .then((value) => {
+        this.cache.set(key, {
+          value,
+          expiresAt: Date.now() + YAHOO_CACHE_TTL_MS,
+        });
+        return value;
+      })
+      .finally(() => {
+        this.inFlight.delete(key);
+      });
+
+    this.inFlight.set(key, promise);
+    return promise;
   }
 }
 
 function normalizeNewsCount(newsCount = DEFAULT_NEWS_COUNT): number {
-  if (!Number.isInteger(newsCount) || newsCount <= 0 || newsCount > 50) {
-    throw new Error("newsCount must be an integer between 1 and 50");
+  if (!Number.isInteger(newsCount) || newsCount <= 0 || newsCount > MAX_NEWS_COUNT) {
+    throw new Error(`newsCount must be an integer between 1 and ${MAX_NEWS_COUNT}`);
   }
 
   return newsCount;
+}
+
+function normalizeHistoricalLimit(limit = DEFAULT_HISTORICAL_LIMIT): number {
+  if (!Number.isInteger(limit) || limit <= 0 || limit > MAX_HISTORICAL_LIMIT) {
+    throw new Error(`limit must be an integer between 1 and ${MAX_HISTORICAL_LIMIT}`);
+  }
+
+  return limit;
+}
+
+function normalizeActionsLimit(limit = DEFAULT_ACTIONS_LIMIT): number {
+  if (!Number.isInteger(limit) || limit <= 0 || limit > MAX_ACTIONS_LIMIT) {
+    throw new Error(`limit must be an integer between 1 and ${MAX_ACTIONS_LIMIT}`);
+  }
+
+  return limit;
+}
+
+function normalizeFinancialStatementLimit(limit = DEFAULT_FINANCIAL_STATEMENT_LIMIT): number {
+  if (!Number.isInteger(limit) || limit <= 0 || limit > MAX_FINANCIAL_STATEMENT_LIMIT) {
+    throw new Error(`limit must be an integer between 1 and ${MAX_FINANCIAL_STATEMENT_LIMIT}`);
+  }
+
+  return limit;
 }
 
 function validateDateRange(fromDate: string, toDate: string | undefined): void {
@@ -225,4 +428,37 @@ function serializeRecord<T extends object>(record: T) {
       return [key, value];
     }),
   );
+}
+
+function buildCacheKey(scope: string, params: object): string {
+  return `${scope}:${JSON.stringify(params)}`;
+}
+
+function truncateText(value: string | null, maxLength: number): string | null {
+  if (!value) {
+    return value;
+  }
+
+  return value.length > maxLength ? `${value.slice(0, maxLength - 3)}...` : value;
+}
+
+async function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  timeoutMessage: string,
+): Promise<T> {
+  let timeoutHandle: NodeJS.Timeout | null = null;
+
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timeoutHandle = setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeoutHandle) {
+      clearTimeout(timeoutHandle);
+    }
+  }
 }

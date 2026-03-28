@@ -21,6 +21,7 @@ export function registerYahooFinanceTools(
         fromDate: isoDateSchema,
         toDate: isoDateSchema.optional(),
         interval: intervalSchema.optional(),
+        limit: z.number().int().min(1).max(1000).optional(),
       },
     },
     async (args) => {
@@ -64,10 +65,10 @@ export function registerYahooFinanceTools(
   server.registerTool(
     "get_yahoo_finance_news",
     {
-      description: "Search Yahoo Finance news by symbol or company name. Use smaller newsCount values to keep responses short.",
+      description: "Search Yahoo Finance news by symbol or company name. Defaults are intentionally small to reduce latency and token usage.",
       inputSchema: {
         query: z.string().min(1),
-        newsCount: z.number().int().min(1).max(50).optional(),
+        newsCount: z.number().int().min(1).max(20).optional(),
       },
     },
     async (args) => {
@@ -93,6 +94,7 @@ export function registerYahooFinanceTools(
         symbol: z.string().min(1),
         fromDate: isoDateSchema,
         toDate: isoDateSchema.optional(),
+        limit: z.number().int().min(1).max(200).optional(),
       },
     },
     async (args) => {
@@ -113,13 +115,14 @@ export function registerYahooFinanceTools(
   server.registerTool(
     "get_financial_statement",
     {
-      description: "Get time-series financial statements from Yahoo Finance. Choose statementType and frequency to narrow the dataset.",
+      description: "Get time-series financial statements from Yahoo Finance. Defaults are capped to recent rows to keep payloads small.",
       inputSchema: {
         symbol: z.string().min(1),
         statementType: statementTypeSchema,
         frequency: statementFrequencySchema.optional(),
         fromDate: isoDateSchema,
         toDate: isoDateSchema.optional(),
+        limit: z.number().int().min(1).max(40).optional(),
       },
     },
     async (args) => {
@@ -196,12 +199,11 @@ function formatHistoricalPricesText(
 }
 
 function formatStockInfoText(result: Awaited<ReturnType<YahooFinanceService["getStockInfo"]>>): string {
-  const quote = result.quote;
   return [
-    `${result.symbol}: ${quote.longName ?? quote.shortName ?? result.symbol}`,
-    `Price: ${quote.regularMarketPrice ?? "n/a"} ${quote.currency ?? ""}`.trim(),
-    `Market cap: ${quote.marketCap ?? "n/a"}`,
-    `52w range: ${quote.fiftyTwoWeekLow ?? "n/a"} - ${quote.fiftyTwoWeekHigh ?? "n/a"}`,
+    `${result.symbol}: ${result.companyName}`,
+    `Price: ${result.price.regularMarketPrice ?? "n/a"} ${result.currency ?? ""}`.trim(),
+    `Market cap: ${result.price.marketCap ?? "n/a"}`,
+    `52w range: ${result.price.fiftyTwoWeekLow ?? "n/a"} - ${result.price.fiftyTwoWeekHigh ?? "n/a"}`,
   ].join("\n");
 }
 
@@ -237,8 +239,7 @@ function formatFinancialStatementText(
 function formatHolderInfoText(
   result: Awaited<ReturnType<YahooFinanceService["getHolderInfo"]>>,
 ): string {
-  const summary = result.summary;
-  const majorHolders = summary.majorHoldersBreakdown;
+  const majorHolders = result.majorHoldersBreakdown;
 
   return [
     `${result.symbol} holder info loaded.`,

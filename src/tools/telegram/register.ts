@@ -3,8 +3,9 @@ import { z } from "zod";
 
 import type { TelegramService } from "./service.js";
 
-const DIALOG_TEXT_PREVIEW_LIMIT = 20;
-const MESSAGE_TEXT_PREVIEW_LIMIT = 10;
+const DIALOG_TEXT_PREVIEW_LIMIT = 10;
+const MESSAGE_TEXT_PREVIEW_LIMIT = 3;
+const MESSAGE_TEXT_LINE_LIMIT = 160;
 
 export function registerTelegramTools(server: McpServer, telegramService: TelegramService): void {
   server.registerTool(
@@ -47,19 +48,20 @@ export function registerTelegramTools(server: McpServer, telegramService: Telegr
     },
     async ({ channel, hours, limit, offsetId, includeTextPreview }) => {
       const result = await telegramService.readChannel({ channel, hours, limit, offsetId });
+      const shouldIncludePreview = includeTextPreview === true;
 
       return {
-        content: includeTextPreview === false
+        content: shouldIncludePreview
           ? [
               {
                 type: "text",
-                text: `Recent messages for ${result.dialog.title}: ${result.messages.length} found. nextOffsetId=${result.nextOffsetId ?? "null"}. Full data is in structuredContent.`,
+                text: formatMessagesText(result.dialog.title, result.messages, result.nextOffsetId),
               },
             ]
           : [
               {
                 type: "text",
-                text: formatMessagesText(result.dialog.title, result.messages, result.nextOffsetId),
+                text: `Recent messages for ${result.dialog.title}: ${result.messages.length} found. nextOffsetId=${result.nextOffsetId ?? "null"}. Full data is in structuredContent.`,
               },
             ],
         structuredContent: result,
@@ -98,7 +100,7 @@ function formatMessagesText(
 
   const preview = messages.slice(0, MESSAGE_TEXT_PREVIEW_LIMIT);
   const lines = preview.map((message) => {
-    return `[${message.date}] ${message.sender ?? "unknown"}: ${message.text || "(no text)"}`;
+    return `[${message.date}] ${message.sender ?? "unknown"}: ${truncateText(message.text || "(no text)", MESSAGE_TEXT_LINE_LIMIT)}`;
   });
   const suffix = messages.length > MESSAGE_TEXT_PREVIEW_LIMIT
     ? `\n... ${messages.length - MESSAGE_TEXT_PREVIEW_LIMIT} more messages in structuredContent`
@@ -108,4 +110,8 @@ function formatMessagesText(
     `Recent messages for ${dialogTitle}: ${messages.length} found. nextOffsetId=${nextOffsetId ?? "null"}.`,
     ...lines,
   ].join("\n") + suffix;
+}
+
+function truncateText(value: string, maxLength: number): string {
+  return value.length > maxLength ? `${value.slice(0, maxLength - 3)}...` : value;
 }
