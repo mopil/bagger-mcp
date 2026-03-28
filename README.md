@@ -75,6 +75,20 @@ npm run dev
 - `x_search({ query, allowedXHandles?, excludedXHandles?, fromDate?, toDate? })`
   - Grok의 `x_search` built-in tool로 X 실시간 검색을 수행합니다.
   - `allowedXHandles` / `excludedXHandles` / 날짜 필터로 범위를 줄일 수 있습니다.
+- `get_historical_stock_prices({ symbol, fromDate, toDate?, interval? })`
+  - Yahoo Finance 일/주/월 가격 이력을 반환합니다.
+- `get_stock_info({ symbol })`
+  - 현재 가격, 요약, 재무/밸류에이션 기본 정보를 반환합니다.
+- `get_yahoo_finance_news({ query, newsCount? })`
+  - Yahoo Finance 뉴스 검색 결과를 반환합니다.
+- `get_stock_actions({ symbol, fromDate, toDate? })`
+  - 배당과 액면분할 이력을 반환합니다.
+- `get_financial_statement({ symbol, statementType, frequency?, fromDate, toDate? })`
+  - 시계열 재무제표를 반환합니다.
+- `get_holder_info({ symbol })`
+  - 기관/펀드/내부자/주요 보유자 정보를 반환합니다.
+- `get_recommendations({ symbol })`
+  - 관련 종목 추천을 반환합니다.
 
 두 도구 모두 사람이 읽기 쉬운 텍스트 요약과 구조화된 JSON 응답을 함께 반환합니다.
 

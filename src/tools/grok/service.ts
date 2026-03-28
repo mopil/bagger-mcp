@@ -32,6 +32,7 @@ interface XaiResponsesApiResponse {
 
 const XAI_RESPONSES_API_URL = "https://api.x.ai/v1/responses";
 const DEFAULT_XAI_MODEL = "grok-4.20-reasoning";
+const XAI_REQUEST_TIMEOUT_MS = 30_000;
 
 export class GrokService {
   private readonly apiKey: string;
@@ -43,53 +44,66 @@ export class GrokService {
   async xSearch(params: XSearchParams): Promise<XSearchResult> {
     validateHandleFilters(params.allowedXHandles, params.excludedXHandles);
     validateDateRange(params.fromDate, params.toDate);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), XAI_REQUEST_TIMEOUT_MS);
 
-    const response = await fetch(XAI_RESPONSES_API_URL, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        authorization: `Bearer ${this.apiKey}`,
-      },
-      body: JSON.stringify({
+    try {
+      const response = await fetch(XAI_RESPONSES_API_URL, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${this.apiKey}`,
+        },
+        signal: controller.signal,
+        body: JSON.stringify({
+          model: DEFAULT_XAI_MODEL,
+          include: ["no_inline_citations"],
+          input: [
+            {
+              role: "user",
+              content: params.query,
+            },
+          ],
+          tools: [
+            {
+              type: "x_search",
+              ...(params.allowedXHandles ? { allowed_x_handles: params.allowedXHandles } : {}),
+              ...(params.excludedXHandles ? { excluded_x_handles: params.excludedXHandles } : {}),
+              ...(params.fromDate ? { from_date: params.fromDate } : {}),
+              ...(params.toDate ? { to_date: params.toDate } : {}),
+              ...(params.enableImageUnderstanding !== undefined
+                ? { enable_image_understanding: params.enableImageUnderstanding }
+                : {}),
+              ...(params.enableVideoUnderstanding !== undefined
+                ? { enable_video_understanding: params.enableVideoUnderstanding }
+                : {}),
+            },
+          ],
+        }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`xAI API request failed (${response.status}): ${errorText}`);
+      }
+
+      const data = await response.json() as XaiResponsesApiResponse;
+      const text = extractOutputText(data);
+
+      return {
         model: DEFAULT_XAI_MODEL,
-        include: ["no_inline_citations"],
-        input: [
-          {
-            role: "user",
-            content: params.query,
-          },
-        ],
-        tools: [
-          {
-            type: "x_search",
-            ...(params.allowedXHandles ? { allowed_x_handles: params.allowedXHandles } : {}),
-            ...(params.excludedXHandles ? { excluded_x_handles: params.excludedXHandles } : {}),
-            ...(params.fromDate ? { from_date: params.fromDate } : {}),
-            ...(params.toDate ? { to_date: params.toDate } : {}),
-            ...(params.enableImageUnderstanding !== undefined
-              ? { enable_image_understanding: params.enableImageUnderstanding }
-              : {}),
-            ...(params.enableVideoUnderstanding !== undefined
-              ? { enable_video_understanding: params.enableVideoUnderstanding }
-              : {}),
-          },
-        ],
-      }),
-    });
+        text,
+        citations: data.citations ?? [],
+      };
+    } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") {
+        throw new Error(`xAI API request timed out after ${XAI_REQUEST_TIMEOUT_MS}ms`);
+      }
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`xAI API request failed (${response.status}): ${errorText}`);
+      throw error;
+    } finally {
+      clearTimeout(timeout);
     }
-
-    const data = await response.json() as XaiResponsesApiResponse;
-    const text = extractOutputText(data);
-
-    return {
-      model: DEFAULT_XAI_MODEL,
-      text,
-      citations: data.citations ?? [],
-    };
   }
 }
 

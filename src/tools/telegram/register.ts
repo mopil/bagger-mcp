@@ -41,24 +41,25 @@ export function registerTelegramTools(server: McpServer, telegramService: Telegr
         channel: z.string().min(1),
         hours: z.number().positive().optional(),
         limit: z.number().int().min(1).max(200).optional(),
+        offsetId: z.number().int().min(0).optional(),
         includeTextPreview: z.boolean().optional(),
       },
     },
-    async ({ channel, hours, limit, includeTextPreview }) => {
-      const result = await telegramService.readChannel({ channel, hours, limit });
+    async ({ channel, hours, limit, offsetId, includeTextPreview }) => {
+      const result = await telegramService.readChannel({ channel, hours, limit, offsetId });
 
       return {
         content: includeTextPreview === false
           ? [
               {
                 type: "text",
-                text: `Recent messages for ${result.dialog.title}: ${result.messages.length} found. Full data is in structuredContent.`,
+                text: `Recent messages for ${result.dialog.title}: ${result.messages.length} found. nextOffsetId=${result.nextOffsetId ?? "null"}. Full data is in structuredContent.`,
               },
             ]
           : [
               {
                 type: "text",
-                text: formatMessagesText(result.dialog.title, result.messages),
+                text: formatMessagesText(result.dialog.title, result.messages, result.nextOffsetId),
               },
             ],
         structuredContent: result,
@@ -89,9 +90,10 @@ function formatDialogsText(dialogs: Awaited<ReturnType<TelegramService["listDial
 function formatMessagesText(
   dialogTitle: string,
   messages: Awaited<ReturnType<TelegramService["readChannel"]>>["messages"],
+  nextOffsetId: number | null,
 ): string {
   if (messages.length === 0) {
-    return `No messages found for ${dialogTitle} in the requested time window.`;
+    return `No messages found for ${dialogTitle} in the requested time window. nextOffsetId=null`;
   }
 
   const preview = messages.slice(0, MESSAGE_TEXT_PREVIEW_LIMIT);
@@ -103,7 +105,7 @@ function formatMessagesText(
     : "";
 
   return [
-    `Recent messages for ${dialogTitle}: ${messages.length} found.`,
+    `Recent messages for ${dialogTitle}: ${messages.length} found. nextOffsetId=${nextOffsetId ?? "null"}.`,
     ...lines,
   ].join("\n") + suffix;
 }

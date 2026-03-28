@@ -32,6 +32,7 @@ export interface TelegramReadChannelParams {
   channel: string;
   hours?: number;
   limit?: number;
+  offsetId?: number;
 }
 
 export interface TelegramListDialogsParams {
@@ -49,6 +50,7 @@ export class TelegramService {
   private readonly options: TelegramClientOptions;
   private client: TelegramClient | null = null;
   private connectPromise: Promise<boolean> | null = null;
+  private dialogsRefreshPromise: Promise<TelegramDialogSummary[]> | null = null;
   private dialogsCache:
     | {
         expiresAt: number;
@@ -75,6 +77,7 @@ export class TelegramService {
   async readChannel(params: TelegramReadChannelParams): Promise<{
     dialog: TelegramDialogSummary;
     messages: TelegramMessageSummary[];
+    nextOffsetId: number | null;
   }> {
     await this.ensureConnected();
     const client = this.getOrCreateClient();
@@ -83,8 +86,9 @@ export class TelegramService {
     const dialog = resolveDialog(dialogs, params.channel);
     const cutoffTime = Date.now() - normalizeHours(params.hours) * 60 * 60 * 1000;
     const limit = normalizeLimit(params.limit);
+    const offsetId = normalizeOffsetId(params.offsetId);
 
-    const messages = await client.getMessages(dialog.accessKey, { limit });
+    const messages = await client.getMessages(dialog.accessKey, { limit, offsetId });
 
     const summarizedMessages = messages
       .filter((message) => message?.date)
@@ -105,10 +109,12 @@ export class TelegramService {
         } satisfies TelegramMessageSummary;
       })
       .filter((message) => new Date(message.date).getTime() >= cutoffTime);
+    const oldestMessage = summarizedMessages[summarizedMessages.length - 1];
 
     return {
       dialog,
       messages: summarizedMessages,
+      nextOffsetId: oldestMessage?.id ?? null,
     };
   }
 
@@ -132,36 +138,48 @@ export class TelegramService {
       return this.dialogsCache.dialogs;
     }
 
+    if (this.dialogsRefreshPromise) {
+      return this.dialogsRefreshPromise;
+    }
+
     const client = this.getOrCreateClient();
-    const dialogs = (await client.getDialogs({}))
-      .map((dialog) => {
-        const entity = dialog.entity;
-        if (!entity) {
-          return null;
-        }
+    this.dialogsRefreshPromise = client.getDialogs({})
+      .then((fetchedDialogs) => {
+        const dialogs = fetchedDialogs
+          .map((dialog) => {
+            const entity = dialog.entity;
+            if (!entity) {
+              return null;
+            }
 
-        const type = getDialogType(entity);
-        const title = getDialogTitle(dialog);
-        const username = getEntityUsername(entity);
-        const id = String(getEntityId(entity));
+            const type = getDialogType(entity);
+            const title = getDialogTitle(dialog);
+            const username = getEntityUsername(entity);
+            const id = String(getEntityId(entity));
 
-        return {
-          id,
-          title,
-          username,
-          type,
-          accessKey: username ?? id,
-        } satisfies TelegramDialogSummary;
+            return {
+              id,
+              title,
+              username,
+              type,
+              accessKey: username ?? id,
+            } satisfies TelegramDialogSummary;
+          })
+          .filter((dialog): dialog is TelegramDialogSummary => dialog !== null)
+          .sort((left, right) => left.title.localeCompare(right.title));
+
+        this.dialogsCache = {
+          dialogs,
+          expiresAt: Date.now() + DIALOG_CACHE_TTL_MS,
+        };
+
+        return dialogs;
       })
-      .filter((dialog): dialog is TelegramDialogSummary => dialog !== null)
-      .sort((left, right) => left.title.localeCompare(right.title));
+      .finally(() => {
+        this.dialogsRefreshPromise = null;
+      });
 
-    this.dialogsCache = {
-      dialogs,
-      expiresAt: Date.now() + DIALOG_CACHE_TTL_MS,
-    };
-
-    return dialogs;
+    return this.dialogsRefreshPromise;
   }
 
   private getOrCreateClient(): TelegramClient {
@@ -196,6 +214,18 @@ function normalizeLimit(limit = 50): number {
   }
 
   return limit;
+}
+
+function normalizeOffsetId(offsetId: number | undefined): number {
+  if (offsetId === undefined) {
+    return 0;
+  }
+
+  if (!Number.isInteger(offsetId) || offsetId < 0) {
+    throw new Error("offsetId must be a non-negative integer");
+  }
+
+  return offsetId;
 }
 
 function normalizeDialogsLimit(limit = 100): number {

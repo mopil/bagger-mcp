@@ -7,6 +7,14 @@ import type { AppConfig } from "../config.js";
 import { createMcpServer } from "../mcp/createServer.js";
 import { GrokService } from "../tools/grok/service.js";
 import { TelegramService } from "../tools/telegram/service.js";
+import { YahooFinanceService } from "../tools/yahoo-finance/service.js";
+
+const SESSION_IDLE_TTL_MS = 30 * 60 * 1000;
+
+interface ManagedTransport {
+  transport: StreamableHTTPServerTransport;
+  idleTimer: NodeJS.Timeout;
+}
 
 export function createApp(config: AppConfig) {
   const telegramService = new TelegramService({
@@ -17,7 +25,8 @@ export function createApp(config: AppConfig) {
   const grokService = new GrokService({
     apiKey: config.xaiApiKey,
   });
-  const transports = new Map<string, StreamableHTTPServerTransport>();
+  const yahooFinanceService = new YahooFinanceService();
+  const transports = new Map<string, ManagedTransport>();
   const mcpPath = `/mcp/${config.pathSecret}`;
 
   const app = express();
@@ -39,6 +48,7 @@ export function createApp(config: AppConfig) {
         transports,
         telegramService,
         grokService,
+        yahooFinanceService,
       });
       if (!transport) {
         return;
@@ -83,7 +93,7 @@ export function createApp(config: AppConfig) {
 function requireSessionTransport(
   req: Request,
   res: Response,
-  transports: Map<string, StreamableHTTPServerTransport>,
+  transports: Map<string, ManagedTransport>,
 ): StreamableHTTPServerTransport | null {
   const sessionId = req.header("mcp-session-id");
 
@@ -95,8 +105,8 @@ function requireSessionTransport(
     return null;
   }
 
-  const transport = transports.get(sessionId);
-  if (!transport) {
+  const managedTransport = transports.get(sessionId);
+  if (!managedTransport) {
     res.status(404).json({
       error: "Not Found",
       message: "Unknown MCP session.",
@@ -104,7 +114,8 @@ function requireSessionTransport(
     return null;
   }
 
-  return transport;
+  refreshTransportIdleTimer(sessionId, managedTransport, transports);
+  return managedTransport.transport;
 }
 
 async function getOrCreateTransport({
@@ -114,17 +125,19 @@ async function getOrCreateTransport({
   transports,
   telegramService,
   grokService,
+  yahooFinanceService,
 }: {
   sessionId: string | undefined;
   body: unknown;
   res: Response;
-  transports: Map<string, StreamableHTTPServerTransport>;
+  transports: Map<string, ManagedTransport>;
   telegramService: TelegramService;
   grokService: GrokService;
+  yahooFinanceService: YahooFinanceService;
 }): Promise<StreamableHTTPServerTransport | null> {
   if (sessionId) {
-    const existingTransport = transports.get(sessionId);
-    if (!existingTransport) {
+    const existingManagedTransport = transports.get(sessionId);
+    if (!existingManagedTransport) {
       res.status(404).json({
         error: "Not Found",
         message: "Unknown MCP session.",
@@ -132,7 +145,8 @@ async function getOrCreateTransport({
       return null;
     }
 
-    return existingTransport;
+    refreshTransportIdleTimer(sessionId, existingManagedTransport, transports);
+    return existingManagedTransport.transport;
   }
 
   if (!isInitializeRequest(body)) {
@@ -147,18 +161,25 @@ async function getOrCreateTransport({
   transport = new StreamableHTTPServerTransport({
     sessionIdGenerator: () => randomUUID(),
     onsessioninitialized: (initializedSessionId) => {
-      transports.set(initializedSessionId, transport);
+      transports.set(initializedSessionId, {
+        transport,
+        idleTimer: createIdleTimer(initializedSessionId, transport, transports),
+      });
     },
   });
 
   transport.onclose = () => {
     const activeSessionId = transport.sessionId;
     if (activeSessionId) {
+      const managedTransport = transports.get(activeSessionId);
+      if (managedTransport) {
+        clearTimeout(managedTransport.idleTimer);
+      }
       transports.delete(activeSessionId);
     }
   };
 
-  const server = createMcpServer({ telegramService, grokService });
+  const server = createMcpServer({ telegramService, grokService, yahooFinanceService });
   await server.connect(transport);
   const originalOnClose = transport.onclose;
   transport.onclose = () => {
@@ -178,4 +199,28 @@ function sendInternalError(res: Response, error: unknown): void {
     error: "Internal Server Error",
     message: error instanceof Error ? error.message : "Unknown error",
   });
+}
+
+function createIdleTimer(
+  sessionId: string,
+  transport: StreamableHTTPServerTransport,
+  transports: Map<string, ManagedTransport>,
+): NodeJS.Timeout {
+  return setTimeout(() => {
+    const managedTransport = transports.get(sessionId);
+    if (!managedTransport || managedTransport.transport !== transport) {
+      return;
+    }
+
+    void transport.close();
+  }, SESSION_IDLE_TTL_MS);
+}
+
+function refreshTransportIdleTimer(
+  sessionId: string,
+  managedTransport: ManagedTransport,
+  transports: Map<string, ManagedTransport>,
+): void {
+  clearTimeout(managedTransport.idleTimer);
+  managedTransport.idleTimer = createIdleTimer(sessionId, managedTransport.transport, transports);
 }
