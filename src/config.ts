@@ -19,6 +19,7 @@ export interface AppConfig {
   telegramApiId: number;
   telegramApiHash: string;
   telegramSession: string;
+  xaiApiKey: string;
 }
 
 export function getConfig(): AppConfig {
@@ -39,5 +40,6 @@ export function getConfig(): AppConfig {
     telegramApiId,
     telegramApiHash: requireEnv("TELEGRAM_API_HASH"),
     telegramSession: requireEnv("TELEGRAM_SESSION"),
+    xaiApiKey: requireEnv("XAI_API_KEY"),
   };
 }

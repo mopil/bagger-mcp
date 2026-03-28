@@ -5,6 +5,7 @@ import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 
 import type { AppConfig } from "../config.js";
 import { createMcpServer } from "../mcp/createServer.js";
+import { GrokService } from "../tools/grok/service.js";
 import { TelegramService } from "../tools/telegram/service.js";
 
 export function createApp(config: AppConfig) {
@@ -12,6 +13,9 @@ export function createApp(config: AppConfig) {
     apiId: config.telegramApiId,
     apiHash: config.telegramApiHash,
     session: config.telegramSession,
+  });
+  const grokService = new GrokService({
+    apiKey: config.xaiApiKey,
   });
   const transports = new Map<string, StreamableHTTPServerTransport>();
   const mcpPath = `/mcp/${config.pathSecret}`;
@@ -34,6 +38,7 @@ export function createApp(config: AppConfig) {
         res,
         transports,
         telegramService,
+        grokService,
       });
       if (!transport) {
         return;
@@ -108,12 +113,14 @@ async function getOrCreateTransport({
   res,
   transports,
   telegramService,
+  grokService,
 }: {
   sessionId: string | undefined;
   body: unknown;
   res: Response;
   transports: Map<string, StreamableHTTPServerTransport>;
   telegramService: TelegramService;
+  grokService: GrokService;
 }): Promise<StreamableHTTPServerTransport | null> {
   if (sessionId) {
     const existingTransport = transports.get(sessionId);
@@ -151,7 +158,7 @@ async function getOrCreateTransport({
     }
   };
 
-  const server = createMcpServer(telegramService);
+  const server = createMcpServer({ telegramService, grokService });
   await server.connect(transport);
   const originalOnClose = transport.onclose;
   transport.onclose = () => {

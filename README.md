@@ -17,6 +17,7 @@ MCP_PATH_SECRET=your-long-random-secret
 TELEGRAM_API_ID=123456
 TELEGRAM_API_HASH=your-telegram-api-hash
 TELEGRAM_SESSION=your-string-session
+XAI_API_KEY=your-xai-api-key
 ```
 
 `PORT`는 선택값입니다. 로컬에서는 기본값 `3000`을 사용하고, Railway 배포 시에는 Railway가 자동으로 포트를 주입합니다.
@@ -71,6 +72,9 @@ npm run dev
   - username, 정확한 제목, 부분 제목, 숫자 id로 dialog를 찾습니다.
   - 지정한 시간 범위 내 최근 메시지를 반환합니다.
   - `includeTextPreview: false`로 설정하면 MCP 텍스트 응답을 더 짧게 줄일 수 있습니다.
+- `x_search({ query, allowedXHandles?, excludedXHandles?, fromDate?, toDate? })`
+  - Grok의 `x_search` built-in tool로 X 실시간 검색을 수행합니다.
+  - `allowedXHandles` / `excludedXHandles` / 날짜 필터로 범위를 줄일 수 있습니다.
 
 두 도구 모두 사람이 읽기 쉬운 텍스트 요약과 구조화된 JSON 응답을 함께 반환합니다.
 
