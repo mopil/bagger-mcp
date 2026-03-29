@@ -6,6 +6,11 @@ import type { TelegramService } from "./service.js";
 const DIALOG_TEXT_PREVIEW_LIMIT = 10;
 const MESSAGE_TEXT_PREVIEW_LIMIT = 3;
 const MESSAGE_TEXT_LINE_LIMIT = 160;
+const optionalStringSchema = z.string().min(1).nullish();
+const optionalIntSchema = (max: number) => z.number().int().min(1).max(max).nullish();
+const optionalPositiveNumberSchema = z.number().positive().nullish();
+const optionalOffsetIdSchema = z.number().int().min(0).nullish();
+const optionalBooleanSchema = z.boolean().nullish();
 
 export function registerTelegramTools(server: McpServer, telegramService: TelegramService): void {
   server.registerTool(
@@ -13,12 +18,15 @@ export function registerTelegramTools(server: McpServer, telegramService: Telegr
     {
       description: "List Telegram dialogs available to the configured session. Use query and smaller limits to narrow search and reduce response size.",
       inputSchema: {
-        query: z.string().min(1).optional(),
-        limit: z.number().int().min(1).max(200).optional(),
+        query: optionalStringSchema,
+        limit: optionalIntSchema(200),
       },
     },
     async ({ query, limit }) => {
-      const dialogs = await telegramService.listDialogs({ query, limit });
+      const dialogs = await telegramService.listDialogs({
+        query: query ?? undefined,
+        limit: limit ?? undefined,
+      });
 
       return {
         content: [
@@ -40,14 +48,19 @@ export function registerTelegramTools(server: McpServer, telegramService: Telegr
       description: "Read recent messages from a Telegram dialog by username, title, or numeric id. Use smaller limits and includeTextPreview=false when structuredContent is enough and you want to minimize text tokens.",
       inputSchema: {
         channel: z.string().min(1),
-        hours: z.number().positive().optional(),
-        limit: z.number().int().min(1).max(200).optional(),
-        offsetId: z.number().int().min(0).optional(),
-        includeTextPreview: z.boolean().optional(),
+        hours: optionalPositiveNumberSchema,
+        limit: optionalIntSchema(200),
+        offsetId: optionalOffsetIdSchema,
+        includeTextPreview: optionalBooleanSchema,
       },
     },
     async ({ channel, hours, limit, offsetId, includeTextPreview }) => {
-      const result = await telegramService.readChannel({ channel, hours, limit, offsetId });
+      const result = await telegramService.readChannel({
+        channel,
+        hours: hours ?? undefined,
+        limit: limit ?? undefined,
+        offsetId: offsetId ?? undefined,
+      });
       const shouldIncludePreview = includeTextPreview === true;
 
       return {

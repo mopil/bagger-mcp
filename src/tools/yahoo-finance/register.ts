@@ -7,6 +7,10 @@ const isoDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Expected YYYY-MM-
 const intervalSchema = z.enum(["1d", "1wk", "1mo"]);
 const statementTypeSchema = z.enum(["income_statement", "balance_sheet", "cash_flow"]);
 const statementFrequencySchema = z.enum(["quarterly", "annual", "trailing"]);
+const optionalIsoDateSchema = isoDateSchema.nullish();
+const optionalIntervalSchema = intervalSchema.nullish();
+const optionalStatementFrequencySchema = statementFrequencySchema.nullish();
+const optionalLimitSchema = (max: number) => z.number().int().min(1).max(max).nullish();
 
 export function registerYahooFinanceTools(
   server: McpServer,
@@ -19,13 +23,18 @@ export function registerYahooFinanceTools(
       inputSchema: {
         symbol: z.string().min(1),
         fromDate: isoDateSchema,
-        toDate: isoDateSchema.optional(),
-        interval: intervalSchema.optional(),
-        limit: z.number().int().min(1).max(1000).optional(),
+        toDate: optionalIsoDateSchema,
+        interval: optionalIntervalSchema,
+        limit: optionalLimitSchema(1000),
       },
     },
     async (args) => {
-      const result = await yahooFinanceService.getHistoricalStockPrices(args);
+      const result = await yahooFinanceService.getHistoricalStockPrices({
+        ...args,
+        toDate: args.toDate ?? undefined,
+        interval: args.interval ?? undefined,
+        limit: args.limit ?? undefined,
+      });
 
       return {
         content: [
@@ -68,11 +77,14 @@ export function registerYahooFinanceTools(
       description: "Search Yahoo Finance news by symbol or company name. Defaults are intentionally small to reduce latency and token usage.",
       inputSchema: {
         query: z.string().min(1),
-        newsCount: z.number().int().min(1).max(20).optional(),
+        newsCount: optionalLimitSchema(20),
       },
     },
     async (args) => {
-      const result = await yahooFinanceService.getYahooFinanceNews(args);
+      const result = await yahooFinanceService.getYahooFinanceNews({
+        ...args,
+        newsCount: args.newsCount ?? undefined,
+      });
 
       return {
         content: [
@@ -93,12 +105,16 @@ export function registerYahooFinanceTools(
       inputSchema: {
         symbol: z.string().min(1),
         fromDate: isoDateSchema,
-        toDate: isoDateSchema.optional(),
-        limit: z.number().int().min(1).max(200).optional(),
+        toDate: optionalIsoDateSchema,
+        limit: optionalLimitSchema(200),
       },
     },
     async (args) => {
-      const result = await yahooFinanceService.getStockActions(args);
+      const result = await yahooFinanceService.getStockActions({
+        ...args,
+        toDate: args.toDate ?? undefined,
+        limit: args.limit ?? undefined,
+      });
 
       return {
         content: [
@@ -119,14 +135,19 @@ export function registerYahooFinanceTools(
       inputSchema: {
         symbol: z.string().min(1),
         statementType: statementTypeSchema,
-        frequency: statementFrequencySchema.optional(),
+        frequency: optionalStatementFrequencySchema,
         fromDate: isoDateSchema,
-        toDate: isoDateSchema.optional(),
-        limit: z.number().int().min(1).max(40).optional(),
+        toDate: optionalIsoDateSchema,
+        limit: optionalLimitSchema(40),
       },
     },
     async (args) => {
-      const result = await yahooFinanceService.getFinancialStatement(args);
+      const result = await yahooFinanceService.getFinancialStatement({
+        ...args,
+        frequency: args.frequency ?? undefined,
+        toDate: args.toDate ?? undefined,
+        limit: args.limit ?? undefined,
+      });
 
       return {
         content: [
@@ -187,14 +208,14 @@ export function registerYahooFinanceTools(
   );
 }
 
-function formatHistoricalPricesText(
+export function formatHistoricalPricesText(
   result: Awaited<ReturnType<YahooFinanceService["getHistoricalStockPrices"]>>,
 ): string {
   if (result.prices.length === 0) {
     return `No historical prices found for ${result.symbol}.`;
   }
 
-  const latest = result.prices[result.prices.length - 1];
+  const latest = result.prices[0];
   return `${result.symbol}: ${result.prices.length} price rows from ${result.fromDate} to ${result.toDate ?? "latest"} at ${result.interval}. Latest close ${latest.close} on ${latest.date}.`;
 }
 

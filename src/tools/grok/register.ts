@@ -4,6 +4,9 @@ import { z } from "zod";
 import type { GrokService } from "./service.js";
 
 const isoDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Expected YYYY-MM-DD format");
+const optionalIsoDateSchema = isoDateSchema.nullish();
+const optionalHandleListSchema = z.array(z.string().min(1)).max(10).nullish();
+const optionalBooleanSchema = z.boolean().nullish();
 
 export function registerGrokTools(server: McpServer, grokService: GrokService): void {
   server.registerTool(
@@ -12,16 +15,24 @@ export function registerGrokTools(server: McpServer, grokService: GrokService): 
       description: "Search X in real time with Grok's x_search tool. Use handle and date filters to narrow scope and reduce result noise.",
       inputSchema: {
         query: z.string().min(1),
-        allowedXHandles: z.array(z.string().min(1)).max(10).optional(),
-        excludedXHandles: z.array(z.string().min(1)).max(10).optional(),
-        fromDate: isoDateSchema.optional(),
-        toDate: isoDateSchema.optional(),
-        enableImageUnderstanding: z.boolean().optional(),
-        enableVideoUnderstanding: z.boolean().optional(),
+        allowedXHandles: optionalHandleListSchema,
+        excludedXHandles: optionalHandleListSchema,
+        fromDate: optionalIsoDateSchema,
+        toDate: optionalIsoDateSchema,
+        enableImageUnderstanding: optionalBooleanSchema,
+        enableVideoUnderstanding: optionalBooleanSchema,
       },
     },
     async (args) => {
-      const result = await grokService.xSearch(args);
+      const result = await grokService.xSearch({
+        ...args,
+        allowedXHandles: args.allowedXHandles ?? undefined,
+        excludedXHandles: args.excludedXHandles ?? undefined,
+        fromDate: args.fromDate ?? undefined,
+        toDate: args.toDate ?? undefined,
+        enableImageUnderstanding: args.enableImageUnderstanding ?? undefined,
+        enableVideoUnderstanding: args.enableVideoUnderstanding ?? undefined,
+      });
 
       return {
         content: [
