@@ -10,29 +10,35 @@ export const telegramListChannelsInputSchema = {
   limit: optionalIntSchema(200),
 } satisfies z.ZodRawShape;
 
-export const telegramReadChannelInputSchema = {
+const telegramReadChannelItemSchema = z.object({
   channel: z.string().min(1),
+  offsetId: optionalOffsetIdSchema,
+});
+
+export const telegramReadChannelsInputSchema = {
+  channels: z.array(telegramReadChannelItemSchema).min(1).max(50),
   hours: optionalPositiveNumberSchema,
   limit: optionalIntSchema(200),
-  offsetId: optionalOffsetIdSchema,
 } satisfies z.ZodRawShape;
 
 const telegramListChannelsObjectSchema = z.object(telegramListChannelsInputSchema);
-const telegramReadChannelObjectSchema = z.object(telegramReadChannelInputSchema);
+const telegramReadChannelsObjectSchema = z.object(telegramReadChannelsInputSchema);
 
 export type TelegramListChannelsInput = z.infer<typeof telegramListChannelsObjectSchema>;
-export type TelegramReadChannelInput = z.infer<typeof telegramReadChannelObjectSchema>;
+export type TelegramReadChannelsInput = z.infer<typeof telegramReadChannelsObjectSchema>;
 
 export interface TelegramListDialogsParams {
   query?: string;
   limit?: number;
 }
 
-export interface TelegramReadChannelParams {
-  channel: string;
+export interface TelegramReadChannelsParams {
+  channels: Array<{
+    channel: string;
+    offsetId?: number;
+  }>;
   hours?: number;
   limit?: number;
-  offsetId?: number;
 }
 
 export function toTelegramListDialogsParams(input: TelegramListChannelsInput): TelegramListDialogsParams {
@@ -42,11 +48,13 @@ export function toTelegramListDialogsParams(input: TelegramListChannelsInput): T
   };
 }
 
-export function toTelegramReadChannelParams(input: TelegramReadChannelInput): TelegramReadChannelParams {
+export function toTelegramReadChannelsParams(input: TelegramReadChannelsInput): TelegramReadChannelsParams {
   return {
-    channel: input.channel,
+    channels: input.channels.map((item) => ({
+      channel: item.channel,
+      offsetId: item.offsetId ?? undefined,
+    })),
     hours: input.hours ?? undefined,
     limit: input.limit ?? undefined,
-    offsetId: input.offsetId ?? undefined,
   };
 }

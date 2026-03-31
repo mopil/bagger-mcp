@@ -2,9 +2,9 @@ import { defineServiceTool } from "../defineTool.js";
 import type { ServiceRegistry } from "../../mcp/services.js";
 import {
   telegramListChannelsInputSchema,
-  telegramReadChannelInputSchema,
+  telegramReadChannelsInputSchema,
   toTelegramListDialogsParams,
-  toTelegramReadChannelParams,
+  toTelegramReadChannelsParams,
 } from "./schema.js";
 
 const tool = defineServiceTool<ServiceRegistry>();
@@ -20,11 +20,11 @@ export const telegramTools = [
     },
   }),
   tool({
-    name: "telegram_read_channel",
-    description: "Read recent messages from a Telegram dialog by username, title, or numeric id.",
-    inputSchema: telegramReadChannelInputSchema,
+    name: "telegram_read_channels",
+    description: "Read recent messages from multiple Telegram dialogs in one request.",
+    inputSchema: telegramReadChannelsInputSchema,
     run(args, { telegramService }) {
-      return telegramService.readChannel(toTelegramReadChannelParams(args));
+      return telegramService.readChannels(toTelegramReadChannelsParams(args));
     },
   }),
 ];

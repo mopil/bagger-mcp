@@ -52,7 +52,7 @@ export function defineServiceTool<TServices>() {
           content: [
             {
               type: "text",
-              text: buildContentPreview(result),
+              text: JSON.stringify(result),
             },
           ],
           structuredContent: result,
@@ -60,23 +60,4 @@ export function defineServiceTool<TServices>() {
       },
     };
   };
-}
-
-function buildContentPreview(result: Record<string, unknown>): string {
-  const keys = Object.keys(result);
-  const previewKeys = keys.slice(0, 8);
-  const lines = ["Full result available in structuredContent."];
-
-  if (previewKeys.length > 0) {
-    lines.push(`Top-level keys: ${previewKeys.join(", ")}${keys.length > previewKeys.length ? ", ..." : ""}.`);
-  }
-
-  for (const key of previewKeys) {
-    const value = result[key];
-    if (Array.isArray(value)) {
-      lines.push(`${key} count: ${value.length}.`);
-    }
-  }
-
-  return lines.join("\n");
 }

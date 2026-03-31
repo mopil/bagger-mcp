@@ -1,7 +1,7 @@
 import { Api } from "telegram";
 import { TelegramClient } from "telegram";
 import { StringSession } from "telegram/sessions/index.js";
-import type { TelegramListDialogsParams, TelegramReadChannelParams } from "./schema.js";
+import type { TelegramListDialogsParams, TelegramReadChannelsParams } from "./schema.js";
 
 export type TelegramDialogType = "channel" | "group" | "user";
 
@@ -63,48 +63,51 @@ export class TelegramService {
     return filteredDialogs.slice(0, limit);
   }
 
-  async readChannel(params: TelegramReadChannelParams): Promise<{
-    dialog: TelegramDialogSummary;
-    messages: TelegramMessageSummary[];
-    nextOffsetId: number | null;
+  async readChannels(params: TelegramReadChannelsParams): Promise<{
+    channels: Array<{
+      channel: string;
+      offsetId: number;
+      dialog?: TelegramDialogSummary;
+      messages?: TelegramMessageSummary[];
+      nextOffsetId?: number | null;
+      error?: string;
+    }>;
   }> {
     await this.ensureConnected();
-    const client = this.getOrCreateClient();
 
     const dialogs = await this.getDialogsCached();
-    const dialog = resolveDialog(dialogs, params.channel);
-    const cutoffTime = Date.now() - normalizeHours(params.hours) * 60 * 60 * 1000;
+    const hours = normalizeHours(params.hours);
     const limit = normalizeLimit(params.limit);
-    const offsetId = normalizeOffsetId(params.offsetId);
 
-    const messages = await client.getMessages(dialog.accessKey, { limit, offsetId });
+    const channels = await Promise.all(
+      params.channels.map(async (channel) => {
+        const offsetId = normalizeOffsetId(channel.offsetId);
 
-    const summarizedMessages = messages
-      .filter((message) => message?.date)
-      .map((message) => {
-        const sender = getSenderName(message.sender, message.postAuthor);
+        try {
+          const result = await this.readChannelResolved({
+            dialogs,
+            channel: channel.channel,
+            hours,
+            limit,
+            offsetId,
+          });
 
-        return {
-          id: Number(message.id),
-          date: new Date(message.date * 1000).toISOString(),
-          text: message.message ?? "",
-          sender,
-          views: "views" in message ? message.views ?? null : null,
-          forwards: "forwards" in message ? message.forwards ?? null : null,
-          replies:
-            "replies" in message && message.replies
-              ? message.replies.replies ?? null
-              : null,
-        } satisfies TelegramMessageSummary;
-      })
-      .filter((message) => new Date(message.date).getTime() >= cutoffTime);
-    const oldestMessage = summarizedMessages[summarizedMessages.length - 1];
+          return {
+            channel: channel.channel,
+            offsetId,
+            ...result,
+          };
+        } catch (error) {
+          return {
+            channel: channel.channel,
+            offsetId,
+            error: error instanceof Error ? error.message : "Unknown error",
+          };
+        }
+      }),
+    );
 
-    return {
-      dialog,
-      messages: summarizedMessages,
-      nextOffsetId: oldestMessage?.id ?? null,
-    };
+    return { channels };
   }
 
   private async ensureConnected(): Promise<void> {
@@ -186,6 +189,50 @@ export class TelegramService {
     );
 
     return this.client;
+  }
+
+  private async readChannelResolved(params: {
+    dialogs: TelegramDialogSummary[];
+    channel: string;
+    hours: number;
+    limit: number;
+    offsetId: number;
+  }): Promise<{
+    dialog: TelegramDialogSummary;
+    messages: TelegramMessageSummary[];
+    nextOffsetId: number | null;
+  }> {
+    const client = this.getOrCreateClient();
+    const dialog = resolveDialog(params.dialogs, params.channel);
+    const cutoffTime = Date.now() - params.hours * 60 * 60 * 1000;
+    const messages = await client.getMessages(dialog.accessKey, { limit: params.limit, offsetId: params.offsetId });
+
+    const summarizedMessages = messages
+      .filter((message) => message?.date)
+      .map((message) => {
+        const sender = getSenderName(message.sender, message.postAuthor);
+
+        return {
+          id: Number(message.id),
+          date: new Date(message.date * 1000).toISOString(),
+          text: message.message ?? "",
+          sender,
+          views: "views" in message ? message.views ?? null : null,
+          forwards: "forwards" in message ? message.forwards ?? null : null,
+          replies:
+            "replies" in message && message.replies
+              ? message.replies.replies ?? null
+              : null,
+        } satisfies TelegramMessageSummary;
+      })
+      .filter((message) => new Date(message.date).getTime() >= cutoffTime);
+    const oldestMessage = summarizedMessages[summarizedMessages.length - 1];
+
+    return {
+      dialog,
+      messages: summarizedMessages,
+      nextOffsetId: oldestMessage?.id ?? null,
+    };
   }
 }
 
