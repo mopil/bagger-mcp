@@ -2,15 +2,7 @@ interface GrokServiceOptions {
   apiKey: string;
 }
 
-export interface XSearchParams {
-  query: string;
-  allowedXHandles?: string[];
-  excludedXHandles?: string[];
-  fromDate?: string;
-  toDate?: string;
-  enableImageUnderstanding?: boolean;
-  enableVideoUnderstanding?: boolean;
-}
+import type { XSearchParams } from "./schema.js";
 
 export interface XSearchResult {
   [key: string]: unknown;

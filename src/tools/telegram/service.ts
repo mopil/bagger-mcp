@@ -1,6 +1,7 @@
 import { Api } from "telegram";
 import { TelegramClient } from "telegram";
 import { StringSession } from "telegram/sessions/index.js";
+import type { TelegramListDialogsParams, TelegramReadChannelParams } from "./schema.js";
 
 export type TelegramDialogType = "channel" | "group" | "user";
 
@@ -26,18 +27,6 @@ interface TelegramClientOptions {
   apiId: number;
   apiHash: string;
   session: string;
-}
-
-export interface TelegramReadChannelParams {
-  channel: string;
-  hours?: number;
-  limit?: number;
-  offsetId?: number;
-}
-
-export interface TelegramListDialogsParams {
-  query?: string;
-  limit?: number;
 }
 
 const DIALOG_CACHE_TTL_MS = 60_000;

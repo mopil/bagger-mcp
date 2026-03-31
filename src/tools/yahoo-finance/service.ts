@@ -1,49 +1,13 @@
 import YahooFinance from "yahoo-finance2";
-
-type HistoricalInterval = "1d" | "1wk" | "1mo";
-type FinancialStatementType = "income_statement" | "balance_sheet" | "cash_flow";
-type FinancialStatementFrequency = "quarterly" | "annual" | "trailing";
-
-export interface HistoricalStockPricesParams {
-  symbol: string;
-  fromDate: string;
-  toDate?: string;
-  interval?: HistoricalInterval;
-  limit?: number;
-}
-
-export interface StockInfoParams {
-  symbol: string;
-}
-
-export interface YahooFinanceNewsParams {
-  query: string;
-  newsCount?: number;
-}
-
-export interface StockActionsParams {
-  symbol: string;
-  fromDate: string;
-  toDate?: string;
-  limit?: number;
-}
-
-export interface FinancialStatementParams {
-  symbol: string;
-  statementType: FinancialStatementType;
-  frequency?: FinancialStatementFrequency;
-  fromDate: string;
-  toDate?: string;
-  limit?: number;
-}
-
-export interface HolderInfoParams {
-  symbol: string;
-}
-
-export interface RecommendationsParams {
-  symbol: string;
-}
+import type {
+  FinancialStatementParams,
+  HistoricalStockPricesParams,
+  HolderInfoParams,
+  RecommendationsParams,
+  StockActionsParams,
+  StockInfoParams,
+  YahooFinanceNewsParams,
+} from "./schema.js";
 
 const DEFAULT_NEWS_COUNT = 5;
 const DEFAULT_HISTORICAL_LIMIT = 120;
@@ -68,15 +32,16 @@ export class YahooFinanceService {
   private readonly inFlight = new Map<string, Promise<unknown>>();
 
   async getHistoricalStockPrices(params: HistoricalStockPricesParams) {
-    validateDateRange(params.fromDate, params.toDate);
+    const toDate = normalizeOptionalDate(params.toDate);
+    validateDateRange(params.fromDate, toDate);
     const limit = normalizeHistoricalLimit(params.limit);
 
-    const cacheKey = buildCacheKey("historical", { ...params, limit });
+    const cacheKey = buildCacheKey("historical", { ...params, toDate, limit });
     const rows = await this.getCached(cacheKey, () =>
       withTimeout(
         this.client.historical(params.symbol, {
           period1: params.fromDate,
-          ...(params.toDate ? { period2: params.toDate } : {}),
+          ...(toDate ? { period2: toDate } : {}),
           ...(params.interval ? { interval: params.interval } : {}),
           events: "history",
         }),
@@ -88,7 +53,7 @@ export class YahooFinanceService {
       symbol: params.symbol.toUpperCase(),
       interval: params.interval ?? "1d",
       fromDate: params.fromDate,
-      toDate: params.toDate ?? null,
+      toDate: toDate ?? null,
       prices: rows
         .map((row) => ({
           date: row.date.toISOString(),
@@ -197,20 +162,21 @@ export class YahooFinanceService {
   }
 
   async getStockActions(params: StockActionsParams) {
-    validateDateRange(params.fromDate, params.toDate);
+    const toDate = normalizeOptionalDate(params.toDate);
+    validateDateRange(params.fromDate, toDate);
     const limit = normalizeActionsLimit(params.limit);
-    const cacheKey = buildCacheKey("actions", { ...params, limit });
+    const cacheKey = buildCacheKey("actions", { ...params, toDate, limit });
     const [dividends, splits] = await this.getCached(cacheKey, () =>
       withTimeout(
         Promise.all([
           this.client.historical(params.symbol, {
             period1: params.fromDate,
-            ...(params.toDate ? { period2: params.toDate } : {}),
+            ...(toDate ? { period2: toDate } : {}),
             events: "dividends",
           }),
           this.client.historical(params.symbol, {
             period1: params.fromDate,
-            ...(params.toDate ? { period2: params.toDate } : {}),
+            ...(toDate ? { period2: toDate } : {}),
             events: "split",
           }),
         ]),
@@ -221,7 +187,7 @@ export class YahooFinanceService {
     return {
       symbol: params.symbol.toUpperCase(),
       fromDate: params.fromDate,
-      toDate: params.toDate ?? null,
+      toDate: toDate ?? null,
       dividends: dividends
         .map((row) => ({
           date: row.date.toISOString(),
@@ -240,16 +206,17 @@ export class YahooFinanceService {
   }
 
   async getFinancialStatement(params: FinancialStatementParams) {
-    validateDateRange(params.fromDate, params.toDate);
+    const toDate = normalizeOptionalDate(params.toDate);
+    validateDateRange(params.fromDate, toDate);
 
     const frequency = params.frequency ?? "quarterly";
     const limit = normalizeFinancialStatementLimit(params.limit);
-    const cacheKey = buildCacheKey("financial-statement", { ...params, frequency, limit });
+    const cacheKey = buildCacheKey("financial-statement", { ...params, toDate, frequency, limit });
     const rows = await this.getCached(cacheKey, () =>
       withTimeout(
         this.client.fundamentalsTimeSeries(params.symbol, {
           period1: params.fromDate,
-          ...(params.toDate ? { period2: params.toDate } : {}),
+          ...(toDate ? { period2: toDate } : {}),
           type: frequency,
           module: mapStatementTypeToModule(params.statementType),
         }),
@@ -267,7 +234,7 @@ export class YahooFinanceService {
       statementType: params.statementType,
       frequency,
       fromDate: params.fromDate,
-      toDate: params.toDate ?? null,
+      toDate: toDate ?? null,
       statements,
       rowCount: statements.length,
     };
@@ -369,45 +336,53 @@ export class YahooFinanceService {
   }
 }
 
-function normalizeNewsCount(newsCount = DEFAULT_NEWS_COUNT): number {
-  if (!Number.isInteger(newsCount) || newsCount <= 0 || newsCount > MAX_NEWS_COUNT) {
+function normalizeNewsCount(newsCount: number | null | undefined = DEFAULT_NEWS_COUNT): number {
+  const normalizedNewsCount = newsCount ?? DEFAULT_NEWS_COUNT;
+  if (!Number.isInteger(normalizedNewsCount) || normalizedNewsCount <= 0 || normalizedNewsCount > MAX_NEWS_COUNT) {
     throw new Error(`newsCount must be an integer between 1 and ${MAX_NEWS_COUNT}`);
   }
 
-  return newsCount;
+  return normalizedNewsCount;
 }
 
-function normalizeHistoricalLimit(limit = DEFAULT_HISTORICAL_LIMIT): number {
-  if (!Number.isInteger(limit) || limit <= 0 || limit > MAX_HISTORICAL_LIMIT) {
+function normalizeHistoricalLimit(limit: number | null | undefined = DEFAULT_HISTORICAL_LIMIT): number {
+  const normalizedLimit = limit ?? DEFAULT_HISTORICAL_LIMIT;
+  if (!Number.isInteger(normalizedLimit) || normalizedLimit <= 0 || normalizedLimit > MAX_HISTORICAL_LIMIT) {
     throw new Error(`limit must be an integer between 1 and ${MAX_HISTORICAL_LIMIT}`);
   }
 
-  return limit;
+  return normalizedLimit;
 }
 
-function normalizeActionsLimit(limit = DEFAULT_ACTIONS_LIMIT): number {
-  if (!Number.isInteger(limit) || limit <= 0 || limit > MAX_ACTIONS_LIMIT) {
+function normalizeActionsLimit(limit: number | null | undefined = DEFAULT_ACTIONS_LIMIT): number {
+  const normalizedLimit = limit ?? DEFAULT_ACTIONS_LIMIT;
+  if (!Number.isInteger(normalizedLimit) || normalizedLimit <= 0 || normalizedLimit > MAX_ACTIONS_LIMIT) {
     throw new Error(`limit must be an integer between 1 and ${MAX_ACTIONS_LIMIT}`);
   }
 
-  return limit;
+  return normalizedLimit;
 }
 
-function normalizeFinancialStatementLimit(limit = DEFAULT_FINANCIAL_STATEMENT_LIMIT): number {
-  if (!Number.isInteger(limit) || limit <= 0 || limit > MAX_FINANCIAL_STATEMENT_LIMIT) {
+function normalizeFinancialStatementLimit(limit: number | null | undefined = DEFAULT_FINANCIAL_STATEMENT_LIMIT): number {
+  const normalizedLimit = limit ?? DEFAULT_FINANCIAL_STATEMENT_LIMIT;
+  if (!Number.isInteger(normalizedLimit) || normalizedLimit <= 0 || normalizedLimit > MAX_FINANCIAL_STATEMENT_LIMIT) {
     throw new Error(`limit must be an integer between 1 and ${MAX_FINANCIAL_STATEMENT_LIMIT}`);
   }
 
-  return limit;
+  return normalizedLimit;
 }
 
-function validateDateRange(fromDate: string, toDate: string | undefined): void {
+function validateDateRange(fromDate: string, toDate: string | null | undefined): void {
   if (toDate && fromDate > toDate) {
     throw new Error("fromDate must be earlier than or equal to toDate.");
   }
 }
 
-function mapStatementTypeToModule(statementType: FinancialStatementType): string {
+function normalizeOptionalDate(value: string | null | undefined): string | undefined {
+  return value ?? undefined;
+}
+
+function mapStatementTypeToModule(statementType: FinancialStatementParams["statementType"]): string {
   switch (statementType) {
     case "income_statement":
       return "financials";
