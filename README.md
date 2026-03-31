@@ -68,10 +68,13 @@ npm run dev
   - 현재 세션에서 접근 가능한 Telegram dialog 목록을 반환합니다.
   - `query`, `limit`으로 결과를 줄일 수 있습니다.
   - 각 항목에는 `id`, `title`, `username`, `type`, `accessKey`가 포함됩니다.
-- `telegram_read_channel({ channel, hours?, limit? })`
-  - username, 정확한 제목, 부분 제목, 숫자 id로 dialog를 찾습니다.
-  - 지정한 시간 범위 내 최근 메시지를 반환합니다.
-  - `includeTextPreview: false`로 설정하면 MCP 텍스트 응답을 더 짧게 줄일 수 있습니다.
+- `telegram_read_channels({ channels, hours?, limit? })`
+  - 여러 Telegram dialog를 한 번에 읽습니다.
+  - `channels`는 `{ channel, offsetId? }[]` 형태입니다.
+  - `channel`에는 username, 정확한 제목, 부분 제목, 숫자 id를 넣을 수 있습니다.
+  - 지정한 시간 범위 내 최근 메시지를 채널별로 반환합니다.
+  - 각 채널 결과에는 `nextOffsetId`가 포함되며, 다음 호출에서 같은 채널의 `offsetId`로 이어 읽을 수 있습니다.
+  - 일부 채널이 실패해도 전체 요청은 유지되고, 실패한 채널 항목에는 `error`가 포함됩니다.
 - `x_search({ query, allowedXHandles?, excludedXHandles?, fromDate?, toDate? })`
   - Grok의 `x_search` built-in tool로 X 실시간 검색을 수행합니다.
   - `allowedXHandles` / `excludedXHandles` / 날짜 필터로 범위를 줄일 수 있습니다.
@@ -90,7 +93,7 @@ npm run dev
 - `get_recommendations({ symbol })`
   - 관련 종목 추천을 반환합니다.
 
-두 도구 모두 사람이 읽기 쉬운 텍스트 요약과 구조화된 JSON 응답을 함께 반환합니다.
+모든 도구는 `content.text`에 JSON 문자열을 담고, 동일한 원본 데이터를 `structuredContent`로도 함께 반환합니다.
 
 ## Railway 배포
 
