@@ -22,7 +22,8 @@ const tool = defineServiceTool<ServiceRegistry>();
 export const yahooFinanceTools = [
   tool({
     name: "get_historical_stock_prices",
-    description: "Get historical OHLCV stock prices from Yahoo Finance. Use narrower date ranges and larger intervals to reduce response size.",
+    description:
+      "Get historical OHLCV stock prices from Yahoo Finance. `fromDate` is required. If `toDate` is omitted, fetch up to the latest available data. If `interval` is omitted, daily data (`1d`) is used. Use narrower date ranges and larger intervals to reduce response size.",
     inputSchema: historicalStockPricesInputSchema,
     run(args, { yahooFinanceService }) {
       return yahooFinanceService.getHistoricalStockPrices(toHistoricalStockPricesParams(args));
@@ -46,7 +47,8 @@ export const yahooFinanceTools = [
   }),
   tool({
     name: "get_stock_actions",
-    description: "Get dividend and split history for a stock over a date range.",
+    description:
+      "Get dividend and split history for a stock over a date range. `fromDate` is required. If `toDate` is omitted, fetch actions up to the latest available data.",
     inputSchema: stockActionsInputSchema,
     run(args, { yahooFinanceService }) {
       return yahooFinanceService.getStockActions(toStockActionsParams(args));
@@ -54,7 +56,8 @@ export const yahooFinanceTools = [
   }),
   tool({
     name: "get_financial_statement",
-    description: "Get time-series financial statements from Yahoo Finance. Defaults are capped to recent rows to keep payloads small.",
+    description:
+      "Get time-series financial statements from Yahoo Finance. `fromDate` is required. If `toDate` is omitted, fetch up to the latest available data. Defaults are capped to recent rows to keep payloads small.",
     inputSchema: financialStatementInputSchema,
     run(args, { yahooFinanceService }) {
       return yahooFinanceService.getFinancialStatement(toFinancialStatementParams(args));

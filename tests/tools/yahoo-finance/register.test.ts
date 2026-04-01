@@ -54,3 +54,48 @@ assert.deepEqual(searchOptions, {
   newsCount: 5,
   quotesCount: 0,
 });
+
+await assert.rejects(
+  () =>
+    service.getHistoricalStockPrices({
+      symbol: "AAPL",
+      fromDate: "2025-02-30",
+    }),
+  /fromDate is invalid: "2025-02-30"\. Use a valid calendar date in YYYY-MM-DD format\./,
+);
+
+await assert.rejects(
+  () =>
+    service.getHistoricalStockPrices({
+      symbol: "AAPL",
+      fromDate: "2025-01-01",
+      toDate: "2025-01-01",
+    }),
+  /toDate must be later than fromDate\. Received fromDate=2025-01-01, toDate=2025-01-01\./,
+);
+
+(service as any).client.historical = async () => {
+  const error = new Error("yahooFinance.historical called with invalid options.");
+  error.name = "InvalidOptionsError";
+  throw error;
+};
+
+await assert.rejects(
+  () =>
+    service.getHistoricalStockPrices({
+      symbol: "aapl",
+      fromDate: "2025-01-01",
+      toDate: "2025-01-02",
+    }),
+  /Yahoo Finance rejected historical options for AAPL: period1=2025-01-01, period2=2025-01-02, interval=<default:1d>, events=history\. Raw options={"period1":"2025-01-01","period2":"2025-01-02","events":"history"}\. This usually means one of period1\/period2\/interval is invalid for the requested range\./,
+);
+
+await assert.rejects(
+  () =>
+    service.getHistoricalStockPrices({
+      symbol: "lwlg",
+      fromDate: "2025-04-01",
+      interval: "1wk",
+    }),
+  /Yahoo Finance rejected historical options for LWLG: period1=2025-04-01, period2=<omitted>, interval=1wk, events=history\. Raw options={"period1":"2025-04-01","interval":"1wk","events":"history"}\. This usually means one of period1\/period2\/interval is invalid for the requested range\./,
+);

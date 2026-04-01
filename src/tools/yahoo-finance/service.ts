@@ -20,10 +20,31 @@ const MAX_FINANCIAL_STATEMENT_LIMIT = 40;
 const YAHOO_REQUEST_TIMEOUT_MS = 15_000;
 const YAHOO_CACHE_TTL_MS = 5 * 60 * 1000;
 const BUSINESS_SUMMARY_LIMIT = 1200;
+const ISO_DATE_ERROR_SUFFIX = "Use a valid calendar date in YYYY-MM-DD format.";
 
 interface CacheEntry<T> {
   expiresAt: number;
   value: T;
+}
+
+interface HistoricalPriceRow {
+  date: Date;
+  open: number | null | undefined;
+  high: number | null | undefined;
+  low: number | null | undefined;
+  close: number | null | undefined;
+  adjClose?: number | null;
+  volume: number | null | undefined;
+}
+
+interface HistoricalDividendRow {
+  date: Date;
+  dividends?: number | null;
+}
+
+interface HistoricalSplitRow {
+  date: Date;
+  stockSplits?: string | null;
 }
 
 export class YahooFinanceService {
@@ -35,16 +56,17 @@ export class YahooFinanceService {
     const toDate = normalizeOptionalDate(params.toDate);
     validateDateRange(params.fromDate, toDate);
     const limit = normalizeHistoricalLimit(params.limit);
+    const requestOptions = buildHistoricalRequestOptions({
+      period1: params.fromDate,
+      period2: toDate,
+      interval: params.interval,
+      events: "history",
+    });
 
     const cacheKey = buildCacheKey("historical", { ...params, toDate, limit });
-    const rows = await this.getCached(cacheKey, () =>
+    const rows = await this.getCached<HistoricalPriceRow[]>(cacheKey, () =>
       withTimeout(
-        this.client.historical(params.symbol, {
-          period1: params.fromDate,
-          ...(toDate ? { period2: toDate } : {}),
-          ...(params.interval ? { interval: params.interval } : {}),
-          events: "history",
-        }),
+        this.executeHistoricalRequest<HistoricalPriceRow[]>(params.symbol, requestOptions),
         YAHOO_REQUEST_TIMEOUT_MS,
         "Yahoo Finance historical request timed out.",
       ));
@@ -166,19 +188,21 @@ export class YahooFinanceService {
     validateDateRange(params.fromDate, toDate);
     const limit = normalizeActionsLimit(params.limit);
     const cacheKey = buildCacheKey("actions", { ...params, toDate, limit });
-    const [dividends, splits] = await this.getCached(cacheKey, () =>
+    const dividendsOptions = buildHistoricalRequestOptions({
+      period1: params.fromDate,
+      period2: toDate,
+      events: "dividends",
+    });
+    const splitsOptions = buildHistoricalRequestOptions({
+      period1: params.fromDate,
+      period2: toDate,
+      events: "split",
+    });
+    const [dividends, splits] = await this.getCached<[HistoricalDividendRow[], HistoricalSplitRow[]]>(cacheKey, () =>
       withTimeout(
         Promise.all([
-          this.client.historical(params.symbol, {
-            period1: params.fromDate,
-            ...(toDate ? { period2: toDate } : {}),
-            events: "dividends",
-          }),
-          this.client.historical(params.symbol, {
-            period1: params.fromDate,
-            ...(toDate ? { period2: toDate } : {}),
-            events: "split",
-          }),
+          this.executeHistoricalRequest<HistoricalDividendRow[]>(params.symbol, dividendsOptions),
+          this.executeHistoricalRequest<HistoricalSplitRow[]>(params.symbol, splitsOptions),
         ]),
         YAHOO_REQUEST_TIMEOUT_MS,
         "Yahoo Finance stock actions request timed out.",
@@ -334,6 +358,21 @@ export class YahooFinanceService {
     this.inFlight.set(key, promise);
     return promise;
   }
+
+  private async executeHistoricalRequest<TResult>(symbol: string, options: HistoricalRequestOptions): Promise<TResult> {
+    try {
+      return await this.client.historical(symbol, options) as TResult;
+    } catch (error) {
+      throw wrapHistoricalOptionsError(error, symbol, options);
+    }
+  }
+}
+
+interface HistoricalRequestOptions {
+  period1: string;
+  period2?: string;
+  interval?: HistoricalStockPricesParams["interval"];
+  events: "history" | "dividends" | "split";
 }
 
 function normalizeNewsCount(newsCount: number | null | undefined = DEFAULT_NEWS_COUNT): number {
@@ -373,8 +412,15 @@ function normalizeFinancialStatementLimit(limit: number | null | undefined = DEF
 }
 
 function validateDateRange(fromDate: string, toDate: string | null | undefined): void {
-  if (toDate && fromDate > toDate) {
-    throw new Error("fromDate must be earlier than or equal to toDate.");
+  assertValidIsoDate("fromDate", fromDate);
+  if (toDate) {
+    assertValidIsoDate("toDate", toDate);
+  }
+
+  if (toDate && fromDate >= toDate) {
+    throw new Error(
+      `toDate must be later than fromDate. Received fromDate=${fromDate}, toDate=${toDate}.`,
+    );
   }
 }
 
@@ -390,6 +436,50 @@ function mapStatementTypeToModule(statementType: FinancialStatementParams["state
       return "balance-sheet";
     case "cash_flow":
       return "cash-flow";
+  }
+}
+
+function buildHistoricalRequestOptions(options: HistoricalRequestOptions): HistoricalRequestOptions {
+  return {
+    period1: options.period1,
+    ...(options.period2 ? { period2: options.period2 } : {}),
+    ...(options.interval ? { interval: options.interval } : {}),
+    events: options.events,
+  };
+}
+
+function wrapHistoricalOptionsError(
+  error: unknown,
+  symbol: string,
+  options: HistoricalRequestOptions,
+): Error {
+  if (!(error instanceof Error)) {
+    return new Error("Unknown Yahoo Finance historical request failure.");
+  }
+
+  if (error.name !== "InvalidOptionsError" && !error.message.includes("invalid options")) {
+    return error;
+  }
+
+  const renderedOptions = JSON.stringify(options);
+  const renderedSummary = [
+    `period1=${options.period1}`,
+    `period2=${options.period2 ?? "<omitted>"}`,
+    `interval=${options.interval ?? "<default:1d>"}`,
+    `events=${options.events}`,
+  ].join(", ");
+
+  return new Error(
+    `Yahoo Finance rejected historical options for ${symbol.toUpperCase()}: ${renderedSummary}. ` +
+      `Raw options=${renderedOptions}. This usually means one of period1/period2/interval is invalid for the requested range.`,
+  );
+}
+
+function assertValidIsoDate(fieldName: "fromDate" | "toDate", value: string): void {
+  const date = new Date(`${value}T00:00:00.000Z`);
+  const isValid = Number.isFinite(date.getTime()) && date.toISOString().startsWith(`${value}T`);
+  if (!isValid) {
+    throw new Error(`${fieldName} is invalid: "${value}". ${ISO_DATE_ERROR_SUFFIX}`);
   }
 }
 
