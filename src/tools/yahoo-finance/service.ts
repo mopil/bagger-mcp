@@ -56,17 +56,16 @@ export class YahooFinanceService {
     const toDate = normalizeOptionalDate(params.toDate);
     validateDateRange(params.fromDate, toDate);
     const limit = normalizeHistoricalLimit(params.limit);
-    const requestOptions = buildHistoricalRequestOptions({
+    const requestOptions = buildChartRequestOptions({
       period1: params.fromDate,
       period2: toDate,
       interval: params.interval,
-      events: "history",
     });
 
     const cacheKey = buildCacheKey("historical", { ...params, toDate, limit });
     const rows = await this.getCached<HistoricalPriceRow[]>(cacheKey, () =>
       withTimeout(
-        this.executeHistoricalRequest<HistoricalPriceRow[]>(params.symbol, requestOptions),
+        this.executeChartRequest<{ quotes: HistoricalPriceRow[] }>(params.symbol, requestOptions).then((result) => result.quotes ?? []),
         YAHOO_REQUEST_TIMEOUT_MS,
         "Yahoo Finance historical request timed out.",
       ));
@@ -188,21 +187,21 @@ export class YahooFinanceService {
     validateDateRange(params.fromDate, toDate);
     const limit = normalizeActionsLimit(params.limit);
     const cacheKey = buildCacheKey("actions", { ...params, toDate, limit });
-    const dividendsOptions = buildHistoricalRequestOptions({
+    const requestOptions = buildChartRequestOptions({
       period1: params.fromDate,
       period2: toDate,
-      events: "dividends",
-    });
-    const splitsOptions = buildHistoricalRequestOptions({
-      period1: params.fromDate,
-      period2: toDate,
-      events: "split",
+      events: "div|split",
     });
     const [dividends, splits] = await this.getCached<[HistoricalDividendRow[], HistoricalSplitRow[]]>(cacheKey, () =>
       withTimeout(
-        Promise.all([
-          this.executeHistoricalRequest<HistoricalDividendRow[]>(params.symbol, dividendsOptions),
-          this.executeHistoricalRequest<HistoricalSplitRow[]>(params.symbol, splitsOptions),
+        this.executeChartRequest<{
+          events?: {
+            dividends?: HistoricalDividendRow[];
+            splits?: HistoricalSplitRow[];
+          };
+        }>(params.symbol, requestOptions).then((result) => [
+          result.events?.dividends ?? [],
+          result.events?.splits ?? [],
         ]),
         YAHOO_REQUEST_TIMEOUT_MS,
         "Yahoo Finance stock actions request timed out.",
@@ -359,20 +358,20 @@ export class YahooFinanceService {
     return promise;
   }
 
-  private async executeHistoricalRequest<TResult>(symbol: string, options: HistoricalRequestOptions): Promise<TResult> {
+  private async executeChartRequest<TResult>(symbol: string, options: ChartRequestOptions): Promise<TResult> {
     try {
-      return await this.client.historical(symbol, options) as TResult;
+      return await this.client.chart(symbol, options) as TResult;
     } catch (error) {
-      throw wrapHistoricalOptionsError(error, symbol, options);
+      throw wrapChartOptionsError(error, symbol, options);
     }
   }
 }
 
-interface HistoricalRequestOptions {
+interface ChartRequestOptions {
   period1: string;
   period2?: string;
-  interval?: HistoricalStockPricesParams["interval"];
-  events: "history" | "dividends" | "split";
+  interval?: HistoricalStockPricesParams["interval"] | "5d" | "3mo";
+  events?: "div|split" | "div|split|earn";
 }
 
 function normalizeNewsCount(newsCount: number | null | undefined = DEFAULT_NEWS_COUNT): number {
@@ -439,22 +438,22 @@ function mapStatementTypeToModule(statementType: FinancialStatementParams["state
   }
 }
 
-function buildHistoricalRequestOptions(options: HistoricalRequestOptions): HistoricalRequestOptions {
+function buildChartRequestOptions(options: ChartRequestOptions): ChartRequestOptions {
   return {
     period1: options.period1,
     ...(options.period2 ? { period2: options.period2 } : {}),
     ...(options.interval ? { interval: options.interval } : {}),
-    events: options.events,
+    ...(options.events ? { events: options.events } : {}),
   };
 }
 
-function wrapHistoricalOptionsError(
+function wrapChartOptionsError(
   error: unknown,
   symbol: string,
-  options: HistoricalRequestOptions,
+  options: ChartRequestOptions,
 ): Error {
   if (!(error instanceof Error)) {
-    return new Error("Unknown Yahoo Finance historical request failure.");
+    return new Error("Unknown Yahoo Finance chart request failure.");
   }
 
   if (error.name !== "InvalidOptionsError" && !error.message.includes("invalid options")) {
@@ -466,11 +465,11 @@ function wrapHistoricalOptionsError(
     `period1=${options.period1}`,
     `period2=${options.period2 ?? "<omitted>"}`,
     `interval=${options.interval ?? "<default:1d>"}`,
-    `events=${options.events}`,
+    `events=${options.events ?? "<default:div|split|earn>"}`,
   ].join(", ");
 
   return new Error(
-    `Yahoo Finance rejected historical options for ${symbol.toUpperCase()}: ${renderedSummary}. ` +
+    `Yahoo Finance rejected chart options for ${symbol.toUpperCase()}: ${renderedSummary}. ` +
       `Raw options=${renderedOptions}. This usually means one of period1/period2/interval is invalid for the requested range.`,
   );
 }

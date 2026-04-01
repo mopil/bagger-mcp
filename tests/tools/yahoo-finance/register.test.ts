@@ -6,19 +6,21 @@ const service = new YahooFinanceService();
 let historicalOptions: Record<string, unknown> | undefined;
 
 (service as any).client = {
-  historical: async (_symbol: string, options: Record<string, unknown>) => {
+  chart: async (_symbol: string, options: Record<string, unknown>) => {
     historicalOptions = options;
-    return [
-      {
-        date: new Date("2025-01-03T00:00:00.000Z"),
-        open: 102,
-        high: 103,
-        low: 101,
-        close: 110,
-        adjClose: 110,
-        volume: 3000,
-      },
-    ];
+    return {
+      quotes: [
+        {
+          date: new Date("2025-01-03T00:00:00.000Z"),
+          open: 102,
+          high: 103,
+          low: 101,
+          close: 110,
+          adjClose: 110,
+          volume: 3000,
+        },
+      ],
+    };
   },
 };
 
@@ -33,7 +35,6 @@ assert.equal(historical.toDate, null);
 assert.equal(historical.prices.length, 1);
 assert.deepEqual(historicalOptions, {
   period1: "2025-01-01",
-  events: "history",
 });
 
 let searchOptions: Record<string, unknown> | undefined;
@@ -74,7 +75,7 @@ await assert.rejects(
   /toDate must be later than fromDate\. Received fromDate=2025-01-01, toDate=2025-01-01\./,
 );
 
-(service as any).client.historical = async () => {
+(service as any).client.chart = async () => {
   const error = new Error("yahooFinance.historical called with invalid options.");
   error.name = "InvalidOptionsError";
   throw error;
@@ -87,7 +88,7 @@ await assert.rejects(
       fromDate: "2025-01-01",
       toDate: "2025-01-02",
     }),
-  /Yahoo Finance rejected historical options for AAPL: period1=2025-01-01, period2=2025-01-02, interval=<default:1d>, events=history\. Raw options={"period1":"2025-01-01","period2":"2025-01-02","events":"history"}\. This usually means one of period1\/period2\/interval is invalid for the requested range\./,
+  /Yahoo Finance rejected chart options for AAPL: period1=2025-01-01, period2=2025-01-02, interval=<default:1d>, events=<default:div\|split\|earn>\. Raw options={"period1":"2025-01-01","period2":"2025-01-02"}\. This usually means one of period1\/period2\/interval is invalid for the requested range\./,
 );
 
 await assert.rejects(
@@ -97,5 +98,5 @@ await assert.rejects(
       fromDate: "2025-04-01",
       interval: "1wk",
     }),
-  /Yahoo Finance rejected historical options for LWLG: period1=2025-04-01, period2=<omitted>, interval=1wk, events=history\. Raw options={"period1":"2025-04-01","interval":"1wk","events":"history"}\. This usually means one of period1\/period2\/interval is invalid for the requested range\./,
+  /Yahoo Finance rejected chart options for LWLG: period1=2025-04-01, period2=<omitted>, interval=1wk, events=<default:div\|split\|earn>\. Raw options={"period1":"2025-04-01","interval":"1wk"}\. This usually means one of period1\/period2\/interval is invalid for the requested range\./,
 );
