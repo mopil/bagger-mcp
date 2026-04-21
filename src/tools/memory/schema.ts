@@ -26,3 +26,21 @@ export const memorySearchInputSchema = {
   extension: optionalString,
   path: optionalString,
 } satisfies z.ZodRawShape;
+
+export const memoryBulkWriteInputSchema = {
+  writes: z
+    .array(
+      z.object({
+        path: z.string().min(1),
+        content: z.string(),
+      }),
+    )
+    .min(1)
+    .max(50),
+  commit_message: z.string().min(1),
+} satisfies z.ZodRawShape;
+
+export const memoryBulkDeleteInputSchema = {
+  paths: z.array(z.string().min(1)).min(1).max(50),
+  commit_message: z.string().min(1),
+} satisfies z.ZodRawShape;

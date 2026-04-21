@@ -50,6 +50,18 @@ export interface MemorySearchResult {
   items: MemorySearchItem[];
 }
 
+export interface MemoryBulkWriteResult {
+  [key: string]: unknown;
+  written: Array<{ path: string }>;
+  commit: { sha: string; url: string };
+}
+
+export interface MemoryBulkDeleteResult {
+  [key: string]: unknown;
+  deleted: string[];
+  commit: { sha: string; url: string };
+}
+
 const GITHUB_API_BASE = "https://api.github.com";
 const REQUEST_TIMEOUT_MS = 30_000;
 
@@ -183,6 +195,115 @@ export class MemoryService {
     };
   }
 
+  async bulkWrite(
+    writes: Array<{ path: string; content: string }>,
+    commitMessage: string,
+  ): Promise<MemoryBulkWriteResult> {
+    for (const write of writes) {
+      validatePathSegments(write.path);
+    }
+    const tree = await Promise.all(
+      writes.map(async (write) => {
+        const blob = await this.githubFetch<{ sha: string }>(
+          "POST",
+          `${GITHUB_API_BASE}/repos/${this.repo}/git/blobs`,
+          {
+            content: Buffer.from(write.content, "utf8").toString("base64"),
+            encoding: "base64",
+          },
+        );
+        return {
+          path: normalizeRepoPath(write.path),
+          mode: "100644" as const,
+          type: "blob" as const,
+          sha: blob.sha,
+        };
+      }),
+    );
+
+    const commit = await this.applyTreeAsCommit(tree, commitMessage);
+    return {
+      written: writes.map((w) => ({ path: normalizeRepoPath(w.path) })),
+      commit,
+    };
+  }
+
+  async bulkDelete(paths: string[], commitMessage: string): Promise<MemoryBulkDeleteResult> {
+    for (const path of paths) {
+      validatePathSegments(path);
+    }
+
+    const existence = await Promise.all(
+      paths.map(async (path) => ({ path, sha: await this.tryGetSha(path) })),
+    );
+    const missing = existence.filter((entry) => entry.sha === undefined).map((e) => e.path);
+    if (missing.length > 0) {
+      throw new Error(
+        `Cannot bulk_delete: ${missing.length} path(s) do not exist on ${this.branch}: ${missing.join(", ")}`,
+      );
+    }
+
+    const tree = paths.map((path) => ({
+      path: normalizeRepoPath(path),
+      mode: "100644" as const,
+      type: "blob" as const,
+      sha: null,
+    }));
+
+    const commit = await this.applyTreeAsCommit(tree, commitMessage);
+    return {
+      deleted: paths.map(normalizeRepoPath),
+      commit,
+    };
+  }
+
+  private async applyTreeAsCommit(
+    tree: Array<{ path: string; mode: "100644"; type: "blob"; sha: string | null }>,
+    commitMessage: string,
+  ): Promise<{ sha: string; url: string }> {
+    const refPath = `heads/${this.branch}`;
+    const ref = await this.githubFetch<{ object: { sha: string } }>(
+      "GET",
+      `${GITHUB_API_BASE}/repos/${this.repo}/git/ref/${refPath}`,
+    );
+    const baseCommitSha = ref.object.sha;
+
+    const baseCommit = await this.githubFetch<{ tree: { sha: string } }>(
+      "GET",
+      `${GITHUB_API_BASE}/repos/${this.repo}/git/commits/${baseCommitSha}`,
+    );
+
+    const newTree = await this.githubFetch<{ sha: string }>(
+      "POST",
+      `${GITHUB_API_BASE}/repos/${this.repo}/git/trees`,
+      { base_tree: baseCommit.tree.sha, tree },
+    );
+
+    if (newTree.sha === baseCommit.tree.sha) {
+      throw new Error(
+        "Bulk operation produced no changes (target files already in that state). Aborting to avoid an empty commit.",
+      );
+    }
+
+    const newCommit = await this.githubFetch<{ sha: string; html_url: string }>(
+      "POST",
+      `${GITHUB_API_BASE}/repos/${this.repo}/git/commits`,
+      {
+        message: commitMessage,
+        tree: newTree.sha,
+        parents: [baseCommitSha],
+      },
+    );
+
+    await this.githubFetch<unknown>(
+      "PATCH",
+      `${GITHUB_API_BASE}/repos/${this.repo}/git/refs/${refPath}`,
+      { sha: newCommit.sha },
+    );
+
+    return { sha: newCommit.sha, url: newCommit.html_url };
+  }
+
   private async tryGetSha(path: string): Promise<string | undefined> {
     try {
       const data = await this.githubFetch<GithubFileResponse>(
@@ -203,20 +324,14 @@ export class MemoryService {
 
   private contentsUrl(path: string, options: { includeRef?: boolean } = {}): string {
     const includeRef = options.includeRef ?? true;
-    const normalized = path.replace(/^\/+/, "");
-    const segments = normalized.split("/").filter((segment) => segment.length > 0);
-    for (const segment of segments) {
-      if (segment === "." || segment === "..") {
-        throw new Error(`Path must not contain '.' or '..' segments: ${path}`);
-      }
-    }
+    const segments = validatePathSegments(path);
     const encoded = segments.map((segment) => encodeURIComponent(segment)).join("/");
     const base = `${GITHUB_API_BASE}/repos/${this.repo}/contents${encoded ? `/${encoded}` : ""}`;
     return includeRef ? `${base}?ref=${encodeURIComponent(this.branch)}` : base;
   }
 
   private async githubFetch<T>(
-    method: "GET" | "PUT" | "DELETE",
+    method: "GET" | "PUT" | "DELETE" | "POST" | "PATCH",
     url: string,
     body?: unknown,
     overrides: { accept?: string } = {},
@@ -304,4 +419,22 @@ function toMemoryEntry(item: GithubFileResponse): MemoryEntry {
     sha: item.sha,
     size: item.size,
   };
+}
+
+function validatePathSegments(path: string): string[] {
+  const segments = path
+    .replace(/^\/+/, "")
+    .replace(/\/+$/, "")
+    .split("/")
+    .filter((segment) => segment.length > 0);
+  for (const segment of segments) {
+    if (segment === "." || segment === "..") {
+      throw new Error(`Path must not contain '.' or '..' segments: ${path}`);
+    }
+  }
+  return segments;
+}
+
+function normalizeRepoPath(path: string): string {
+  return validatePathSegments(path).join("/");
 }

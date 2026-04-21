@@ -1,6 +1,8 @@
 import type { ServiceRegistry } from "../../mcp/services.js";
 import { defineServiceTool } from "../defineTool.js";
 import {
+  memoryBulkDeleteInputSchema,
+  memoryBulkWriteInputSchema,
   memoryDeleteInputSchema,
   memoryListInputSchema,
   memoryReadInputSchema,
@@ -61,6 +63,26 @@ export const memoryTools = [
         extension: args.extension ?? undefined,
         path: args.path ?? undefined,
       });
+      return { result };
+    },
+  }),
+  tool({
+    name: "memory_bulk_write",
+    description:
+      "Create or update multiple files in a SINGLE atomic commit via the GitHub Git Data API. Prefer this over looping memory_write when changes are related — one commit keeps history clean and the operation is all-or-nothing. commit_message applies to the whole batch. Same convention rules as memory_write: read CLAUDE.md / .meta/ once per session before composing writes.",
+    inputSchema: memoryBulkWriteInputSchema,
+    async run(args, { memoryService }) {
+      const result = await memoryService.bulkWrite(args.writes, args.commit_message);
+      return { result };
+    },
+  }),
+  tool({
+    name: "memory_bulk_delete",
+    description:
+      "Delete multiple files in a SINGLE atomic commit via the GitHub Git Data API. All paths must exist on the branch — if any is missing the call aborts with an error BEFORE committing, so the repo is never left in a half-applied state.",
+    inputSchema: memoryBulkDeleteInputSchema,
+    async run(args, { memoryService }) {
+      const result = await memoryService.bulkDelete(args.paths, args.commit_message);
       return { result };
     },
   }),
