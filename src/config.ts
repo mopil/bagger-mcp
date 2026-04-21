@@ -20,6 +20,7 @@ export interface AppConfig {
   telegramApiHash: string;
   telegramSession: string;
   xaiApiKey: string;
+  githubToken: string;
 }
 
 export function getConfig(): AppConfig {
@@ -41,5 +42,6 @@ export function getConfig(): AppConfig {
     telegramApiHash: requireEnv("TELEGRAM_API_HASH"),
     telegramSession: requireEnv("TELEGRAM_SESSION"),
     xaiApiKey: requireEnv("XAI_API_KEY"),
+    githubToken: requireEnv("GITHUB_TOKEN"),
   };
 }

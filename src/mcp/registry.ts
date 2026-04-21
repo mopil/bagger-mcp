@@ -1,6 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
 import { grokTools } from "../tools/grok/tools.js";
+import { memoryTools } from "../tools/memory/tools.js";
 import { telegramTools } from "../tools/telegram/tools.js";
 import { yahooFinanceTools } from "../tools/yahoo-finance/tools.js";
 import type { ServiceRegistry } from "./services.js";
@@ -9,6 +10,7 @@ const registry = [
   ...telegramTools,
   ...grokTools,
   ...yahooFinanceTools,
+  ...memoryTools,
 ];
 
 export function registerTools(server: McpServer, services: ServiceRegistry): void {
