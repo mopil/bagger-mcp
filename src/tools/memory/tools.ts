@@ -136,7 +136,7 @@ Behavior:
 Trigger: ONLY when the user explicitly asks ("ingest 해줘", "_inbox 정리해줘", "/ingest", or equivalent). Never self-trigger.
 
 Required procedure (do this BEFORE calling the tool):
-1. memory_read CLAUDE.md, .meta/conventions.md, .meta/ontology.md, .meta/workflows.md — once per session.
+1. memory_read CLAUDE.md, .meta/conventions.md, .meta/workflows.md — once per session.
 2. memory_list 'sources/_inbox/' — see what is pending. If empty, tell the user and stop.
 3. memory_read every pending inbox file (or a user-agreed subset if too many).
 4. memory_read 'wiki/index.md' plus any related existing pages (memory_search to find overlap).

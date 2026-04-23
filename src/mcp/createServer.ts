@@ -9,7 +9,7 @@ const SERVER_INSTRUCTIONS = `The memory_* tools operate on a long-term memory Gi
 - sources/_inbox/  — raw captures awaiting structuring
 - sources/YYYY/MM/ — ingested originals (IMMUTABLE archive)
 - wiki/            — structured knowledge (pages, index.md, log.md)
-- CLAUDE.md, .meta/{conventions,ontology,workflows}.md — schema the agent must honor
+- CLAUDE.md, .meta/{conventions,workflows}.md — schema the agent must honor
 
 ## Tools
 
