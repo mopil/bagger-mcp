@@ -62,6 +62,13 @@ export interface MemoryBulkDeleteResult {
   commit: { sha: string; url: string };
 }
 
+export interface MemoryBulkCommitResult {
+  [key: string]: unknown;
+  written: Array<{ path: string }>;
+  deleted: string[];
+  commit: { sha: string; url: string };
+}
+
 const GITHUB_API_BASE = "https://api.github.com";
 const REQUEST_TIMEOUT_MS = 30_000;
 
@@ -224,6 +231,70 @@ export class MemoryService {
     const commit = await this.applyTreeAsCommit(tree, commitMessage);
     return {
       written: writes.map((w) => ({ path: normalizeRepoPath(w.path) })),
+      commit,
+    };
+  }
+
+  async bulkCommit(
+    writes: Array<{ path: string; content: string }>,
+    deletes: string[],
+    commitMessage: string,
+  ): Promise<MemoryBulkCommitResult> {
+    if (writes.length === 0 && deletes.length === 0) {
+      throw new Error("bulkCommit requires at least one write or delete.");
+    }
+    for (const write of writes) {
+      validatePathSegments(write.path);
+    }
+    for (const path of deletes) {
+      validatePathSegments(path);
+    }
+
+    if (deletes.length > 0) {
+      const existence = await Promise.all(
+        deletes.map(async (path) => ({ path, sha: await this.tryGetSha(path) })),
+      );
+      const missing = existence.filter((entry) => entry.sha === undefined).map((e) => e.path);
+      if (missing.length > 0) {
+        throw new Error(
+          `Cannot commit: ${missing.length} delete path(s) do not exist on ${this.branch}: ${missing.join(", ")}`,
+        );
+      }
+    }
+
+    const writeEntries = await Promise.all(
+      writes.map(async (write) => {
+        const blob = await this.githubFetch<{ sha: string }>(
+          "POST",
+          `${GITHUB_API_BASE}/repos/${this.repo}/git/blobs`,
+          {
+            content: Buffer.from(write.content, "utf8").toString("base64"),
+            encoding: "base64",
+          },
+        );
+        return {
+          path: normalizeRepoPath(write.path),
+          mode: "100644" as const,
+          type: "blob" as const,
+          sha: blob.sha,
+        };
+      }),
+    );
+
+    const deleteEntries = deletes.map((path) => ({
+      path: normalizeRepoPath(path),
+      mode: "100644" as const,
+      type: "blob" as const,
+      sha: null,
+    }));
+
+    const commit = await this.applyTreeAsCommit(
+      [...writeEntries, ...deleteEntries],
+      commitMessage,
+    );
+    return {
+      written: writes.map((w) => ({ path: normalizeRepoPath(w.path) })),
+      deleted: deletes.map(normalizeRepoPath),
       commit,
     };
   }
