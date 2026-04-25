@@ -23,8 +23,8 @@ interface XaiResponsesApiResponse {
 }
 
 const XAI_RESPONSES_API_URL = "https://api.x.ai/v1/responses";
-const DEFAULT_XAI_MODEL = "grok-4.20-reasoning";
-const XAI_REQUEST_TIMEOUT_MS = 30_000;
+const DEFAULT_XAI_MODEL = "grok-4-latest";
+const XAI_REQUEST_TIMEOUT_MS = 120_000;
 
 export class GrokService {
   private readonly apiKey: string;
