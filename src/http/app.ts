@@ -5,13 +5,13 @@ import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 
 import type { AppConfig } from "../config.js";
 import { createMcpServer } from "../mcp/createServer.js";
-import { BinanceService } from "../tools/binance/service.js";
-import { BithumbService } from "../tools/bithumb/service.js";
+import { BinanceService } from "../tools/crypto/binance/service.js";
+import { BithumbService } from "../tools/crypto/bithumb/service.js";
 import { GrokService } from "../tools/grok/service.js";
 import { KrxService } from "../tools/krx/service.js";
 import { MemoryService } from "../tools/memory/service.js";
 import { TelegramService } from "../tools/telegram/service.js";
-import { UpbitService } from "../tools/upbit/service.js";
+import { UpbitService } from "../tools/crypto/upbit/service.js";
 import { YahooFinanceService } from "../tools/yahoo-finance/service.js";
 
 const SESSION_IDLE_TTL_MS = 30 * 60 * 1000;
