@@ -5,6 +5,7 @@ import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 
 import type { AppConfig } from "../config.js";
 import { createMcpServer } from "../mcp/createServer.js";
+import { BithumbService } from "../tools/bithumb/service.js";
 import { GrokService } from "../tools/grok/service.js";
 import { KrxService } from "../tools/krx/service.js";
 import { MemoryService } from "../tools/memory/service.js";
@@ -36,6 +37,7 @@ export function createApp(config: AppConfig) {
     authKey: config.krxAuthKey,
   });
   const upbitService = new UpbitService();
+  const bithumbService = new BithumbService();
   const transports = new Map<string, ManagedTransport>();
   const mcpPath = `/mcp/${config.pathSecret}`;
 
@@ -62,6 +64,7 @@ export function createApp(config: AppConfig) {
         memoryService,
         krxService,
         upbitService,
+        bithumbService,
       });
       if (!transport) {
         return;
@@ -142,6 +145,7 @@ async function getOrCreateTransport({
   memoryService,
   krxService,
   upbitService,
+  bithumbService,
 }: {
   sessionId: string | undefined;
   body: unknown;
@@ -153,6 +157,7 @@ async function getOrCreateTransport({
   memoryService: MemoryService;
   krxService: KrxService;
   upbitService: UpbitService;
+  bithumbService: BithumbService;
 }): Promise<StreamableHTTPServerTransport | null> {
   if (sessionId) {
     const existingManagedTransport = transports.get(sessionId);
@@ -198,7 +203,7 @@ async function getOrCreateTransport({
     }
   };
 
-  const server = createMcpServer({ telegramService, grokService, yahooFinanceService, memoryService, krxService, upbitService });
+  const server = createMcpServer({ telegramService, grokService, yahooFinanceService, memoryService, krxService, upbitService, bithumbService });
   await server.connect(transport);
   const originalOnClose = transport.onclose;
   transport.onclose = () => {
