@@ -33,21 +33,3 @@ export const memoryCaptureInputSchema = {
     .regex(/^\d{4}-\d{2}-\d{2}$/, "date must be YYYY-MM-DD")
     .nullish(),
 } satisfies z.ZodRawShape;
-
-const bulkWriteEntry = z.object({
-  path: z.string().min(1),
-  content: z.string(),
-});
-
-export const memoryIngestInputSchema = {
-  writes: z.array(bulkWriteEntry).min(1).max(100),
-  deletes: z.array(z.string().min(1)).max(100).nullish(),
-  summary: z.string().min(1).max(300),
-} satisfies z.ZodRawShape;
-
-export const memoryLintInputSchema = {
-  operation: z.enum(["lint", "prune", "refactor"]).nullish(),
-  writes: z.array(bulkWriteEntry).max(100).nullish(),
-  deletes: z.array(z.string().min(1)).max(100).nullish(),
-  summary: z.string().min(1).max(300),
-} satisfies z.ZodRawShape;
