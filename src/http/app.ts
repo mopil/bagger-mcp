@@ -9,6 +9,7 @@ import { GrokService } from "../tools/grok/service.js";
 import { KrxService } from "../tools/krx/service.js";
 import { MemoryService } from "../tools/memory/service.js";
 import { TelegramService } from "../tools/telegram/service.js";
+import { UpbitService } from "../tools/upbit/service.js";
 import { YahooFinanceService } from "../tools/yahoo-finance/service.js";
 
 const SESSION_IDLE_TTL_MS = 30 * 60 * 1000;
@@ -34,6 +35,7 @@ export function createApp(config: AppConfig) {
   const krxService = new KrxService({
     authKey: config.krxAuthKey,
   });
+  const upbitService = new UpbitService();
   const transports = new Map<string, ManagedTransport>();
   const mcpPath = `/mcp/${config.pathSecret}`;
 
@@ -59,6 +61,7 @@ export function createApp(config: AppConfig) {
         yahooFinanceService,
         memoryService,
         krxService,
+        upbitService,
       });
       if (!transport) {
         return;
@@ -138,6 +141,7 @@ async function getOrCreateTransport({
   yahooFinanceService,
   memoryService,
   krxService,
+  upbitService,
 }: {
   sessionId: string | undefined;
   body: unknown;
@@ -148,6 +152,7 @@ async function getOrCreateTransport({
   yahooFinanceService: YahooFinanceService;
   memoryService: MemoryService;
   krxService: KrxService;
+  upbitService: UpbitService;
 }): Promise<StreamableHTTPServerTransport | null> {
   if (sessionId) {
     const existingManagedTransport = transports.get(sessionId);
@@ -193,7 +198,7 @@ async function getOrCreateTransport({
     }
   };
 
-  const server = createMcpServer({ telegramService, grokService, yahooFinanceService, memoryService, krxService });
+  const server = createMcpServer({ telegramService, grokService, yahooFinanceService, memoryService, krxService, upbitService });
   await server.connect(transport);
   const originalOnClose = transport.onclose;
   transport.onclose = () => {
