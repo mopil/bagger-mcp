@@ -1,5 +1,6 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
+import { binanceTools } from "../tools/binance/tools.js";
 import { bithumbTools } from "../tools/bithumb/tools.js";
 import { grokTools } from "../tools/grok/tools.js";
 import { krxTools } from "../tools/krx/tools.js";
@@ -16,6 +17,7 @@ const registry = [
   ...krxTools,
   ...upbitTools,
   ...bithumbTools,
+  ...binanceTools,
   ...memoryTools,
 ];
 
