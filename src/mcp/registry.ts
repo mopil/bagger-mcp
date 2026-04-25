@@ -1,6 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
 import { grokTools } from "../tools/grok/tools.js";
+import { krxTools } from "../tools/krx/tools.js";
 import { memoryTools } from "../tools/memory/tools.js";
 import { telegramTools } from "../tools/telegram/tools.js";
 import { yahooFinanceTools } from "../tools/yahoo-finance/tools.js";
@@ -10,6 +11,7 @@ const registry = [
   ...telegramTools,
   ...grokTools,
   ...yahooFinanceTools,
+  ...krxTools,
   ...memoryTools,
 ];
 

@@ -18,7 +18,11 @@ TELEGRAM_API_ID=123456
 TELEGRAM_API_HASH=your-telegram-api-hash
 TELEGRAM_SESSION=your-string-session
 XAI_API_KEY=your-xai-api-key
+GITHUB_TOKEN=your-github-token
+KRX_AUTH_KEY=your-krx-openapi-auth-key
 ```
+
+`KRX_AUTH_KEY`는 [KRX Data Marketplace OpenAPI](https://openapi.krx.co.kr/)에서 가입 후 활용신청 → 관리자 승인 후 발급됩니다. 일 호출 한도 10,000건, 비상업용.
 
 `PORT`는 선택값입니다. 로컬에서는 기본값 `3000`을 사용하고, Railway 배포 시에는 Railway가 자동으로 포트를 주입합니다.
 
@@ -92,6 +96,22 @@ npm run dev
   - 기관/펀드/내부자/주요 보유자 정보를 반환합니다.
 - `get_recommendations({ symbol })`
   - 관련 종목 추천을 반환합니다.
+- `krx_get_kospi_index_daily({ basDd })`
+  - KOSPI 계열 지수의 특정 영업일 종가/등락/거래량 (KOSPI200, 섹터지수 등 전체).
+- `krx_get_kosdaq_index_daily({ basDd })`
+  - 코스닥 계열 지수의 특정 영업일 시세.
+- `krx_get_stock_daily_kospi({ basDd })`
+  - 유가증권 전종목의 특정 영업일 매매정보(시/고/저/종/거래량/시총 등). 스크리닝용.
+- `krx_get_stock_daily_kosdaq({ basDd })`
+  - 코스닥 전종목 매매정보.
+- `krx_get_stock_base_info_kospi({ basDd })`
+  - 유가증권 종목 메타(코드/종목명/상장일/증권구분/액면가/상장주식수). 시세 없음.
+- `krx_get_stock_base_info_kosdaq({ basDd })`
+  - 코스닥 종목 메타.
+- `krx_get_etf_daily({ basDd })`
+  - 한국 ETF 전종목 매매정보 + NAV/AUM/추적 기초지수. 괴리율·자금유입 분석용.
+
+KRX 도구의 `basDd`는 `YYYYMMDD` 8자리 문자열이며, 휴장일 호출 시 `rows`는 빈 배열입니다.
 
 모든 도구는 `content.text`에 JSON 문자열을 담고, 동일한 원본 데이터를 `structuredContent`로도 함께 반환합니다.
 

@@ -6,6 +6,7 @@ import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import type { AppConfig } from "../config.js";
 import { createMcpServer } from "../mcp/createServer.js";
 import { GrokService } from "../tools/grok/service.js";
+import { KrxService } from "../tools/krx/service.js";
 import { MemoryService } from "../tools/memory/service.js";
 import { TelegramService } from "../tools/telegram/service.js";
 import { YahooFinanceService } from "../tools/yahoo-finance/service.js";
@@ -29,6 +30,9 @@ export function createApp(config: AppConfig) {
   const yahooFinanceService = new YahooFinanceService();
   const memoryService = new MemoryService({
     token: config.githubToken,
+  });
+  const krxService = new KrxService({
+    authKey: config.krxAuthKey,
   });
   const transports = new Map<string, ManagedTransport>();
   const mcpPath = `/mcp/${config.pathSecret}`;
@@ -54,6 +58,7 @@ export function createApp(config: AppConfig) {
         grokService,
         yahooFinanceService,
         memoryService,
+        krxService,
       });
       if (!transport) {
         return;
@@ -132,6 +137,7 @@ async function getOrCreateTransport({
   grokService,
   yahooFinanceService,
   memoryService,
+  krxService,
 }: {
   sessionId: string | undefined;
   body: unknown;
@@ -141,6 +147,7 @@ async function getOrCreateTransport({
   grokService: GrokService;
   yahooFinanceService: YahooFinanceService;
   memoryService: MemoryService;
+  krxService: KrxService;
 }): Promise<StreamableHTTPServerTransport | null> {
   if (sessionId) {
     const existingManagedTransport = transports.get(sessionId);
@@ -186,7 +193,7 @@ async function getOrCreateTransport({
     }
   };
 
-  const server = createMcpServer({ telegramService, grokService, yahooFinanceService, memoryService });
+  const server = createMcpServer({ telegramService, grokService, yahooFinanceService, memoryService, krxService });
   await server.connect(transport);
   const originalOnClose = transport.onclose;
   transport.onclose = () => {
