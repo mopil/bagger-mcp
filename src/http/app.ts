@@ -7,6 +7,7 @@ import type { AppConfig } from "../config.js";
 import { createMcpServer } from "../mcp/createServer.js";
 import { BinanceService } from "../tools/crypto/binance/service.js";
 import { BithumbService } from "../tools/crypto/bithumb/service.js";
+import { CoingeckoService } from "../tools/crypto/coingecko/service.js";
 import { GrokService } from "../tools/grok/service.js";
 import { KrxService } from "../tools/krx/service.js";
 import { MemoryService } from "../tools/memory/service.js";
@@ -40,6 +41,7 @@ export function createApp(config: AppConfig) {
   const upbitService = new UpbitService();
   const bithumbService = new BithumbService();
   const binanceService = new BinanceService();
+  const coingeckoService = new CoingeckoService({ apiKey: config.coingeckoApiKey });
   const transports = new Map<string, ManagedTransport>();
   const mcpPath = `/mcp/${config.pathSecret}`;
 
@@ -68,6 +70,7 @@ export function createApp(config: AppConfig) {
         upbitService,
         bithumbService,
         binanceService,
+        coingeckoService,
       });
       if (!transport) {
         return;
@@ -150,6 +153,7 @@ async function getOrCreateTransport({
   upbitService,
   bithumbService,
   binanceService,
+  coingeckoService,
 }: {
   sessionId: string | undefined;
   body: unknown;
@@ -163,6 +167,7 @@ async function getOrCreateTransport({
   upbitService: UpbitService;
   bithumbService: BithumbService;
   binanceService: BinanceService;
+  coingeckoService: CoingeckoService;
 }): Promise<StreamableHTTPServerTransport | null> {
   if (sessionId) {
     const existingManagedTransport = transports.get(sessionId);
@@ -208,7 +213,7 @@ async function getOrCreateTransport({
     }
   };
 
-  const server = createMcpServer({ telegramService, grokService, yahooFinanceService, memoryService, krxService, upbitService, bithumbService, binanceService });
+  const server = createMcpServer({ telegramService, grokService, yahooFinanceService, memoryService, krxService, upbitService, bithumbService, binanceService, coingeckoService });
   await server.connect(transport);
   const originalOnClose = transport.onclose;
   transport.onclose = () => {

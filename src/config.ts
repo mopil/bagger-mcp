@@ -22,6 +22,7 @@ export interface AppConfig {
   xaiApiKey: string;
   githubToken: string;
   krxAuthKey: string;
+  coingeckoApiKey?: string;
 }
 
 export function getConfig(): AppConfig {
@@ -45,5 +46,6 @@ export function getConfig(): AppConfig {
     xaiApiKey: requireEnv("XAI_API_KEY"),
     githubToken: requireEnv("GITHUB_TOKEN"),
     krxAuthKey: requireEnv("KRX_AUTH_KEY"),
+    coingeckoApiKey: process.env.COINGECKO_API_KEY?.trim() || undefined,
   };
 }

@@ -2,6 +2,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
 import { binanceTools } from "../tools/crypto/binance/tools.js";
 import { bithumbTools } from "../tools/crypto/bithumb/tools.js";
+import { coingeckoTools } from "../tools/crypto/coingecko/tools.js";
 import { grokTools } from "../tools/grok/tools.js";
 import { krxTools } from "../tools/krx/tools.js";
 import { memoryTools } from "../tools/memory/tools.js";
@@ -18,6 +19,7 @@ const registry = [
   ...upbitTools,
   ...bithumbTools,
   ...binanceTools,
+  ...coingeckoTools,
   ...memoryTools,
 ];
 
