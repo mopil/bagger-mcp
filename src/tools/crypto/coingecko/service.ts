@@ -15,6 +15,7 @@ const TTL_MARKETS_MS = 60 * 1000;
 const TTL_TRENDING_MS = 5 * 60 * 1000;
 const TTL_GLOBAL_MS = 60 * 1000;
 const TTL_CATEGORIES_MS = 10 * 60 * 1000;
+const TTL_SIMPLE_PRICE_MS = 30 * 1000;
 
 interface CacheEntry<T> {
   expiresAt: number;
@@ -74,11 +75,14 @@ export class CoingeckoService {
     if (input.include_24hr_change) params.include_24hr_change = "true";
     if (input.include_last_updated_at) params.include_last_updated_at = "true";
 
-    const json = await this.requestJson<Record<string, Record<string, number>>>(
-      "simple/price",
-      params,
-    );
-    return { prices: json };
+    const cacheKey = `simple_price:${new URLSearchParams(params).toString()}`;
+    return this.getCached(cacheKey, TTL_SIMPLE_PRICE_MS, async () => {
+      const json = await this.requestJson<Record<string, Record<string, number>>>(
+        "simple/price",
+        params,
+      );
+      return { prices: json };
+    });
   }
 
   async getGlobal() {

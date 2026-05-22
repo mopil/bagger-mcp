@@ -2,7 +2,14 @@ import type { KrxDailyParams } from "./schema.js";
 
 const KRX_BASE_URL = "http://data-dbg.krx.co.kr/svc/apis";
 const KRX_REQUEST_TIMEOUT_MS = 15_000;
-const KRX_CACHE_TTL_MS = 10 * 60 * 1000;
+const KRX_CACHE_TTL_TODAY_MS = 10 * 60 * 1000;
+const KRX_CACHE_TTL_PAST_MS = 24 * 60 * 60 * 1000;
+
+function ttlForBasDd(basDd: string): number {
+  const today = new Date();
+  const yyyymmdd = `${today.getFullYear()}${String(today.getMonth() + 1).padStart(2, "0")}${String(today.getDate()).padStart(2, "0")}`;
+  return basDd < yyyymmdd ? KRX_CACHE_TTL_PAST_MS : KRX_CACHE_TTL_TODAY_MS;
+}
 
 interface CacheEntry<T> {
   expiresAt: number;
@@ -56,7 +63,8 @@ export class KrxService {
 
   private async fetchEndpoint(path: string, params: KrxDailyParams) {
     const cacheKey = `${path}:${params.basDd}`;
-    const rows = await this.getCached(cacheKey, () => this.requestJson(path, params));
+    const ttl = ttlForBasDd(params.basDd);
+    const rows = await this.getCached(cacheKey, ttl, () => this.requestJson(path, params));
 
     return {
       endpoint: path,
@@ -100,7 +108,7 @@ export class KrxService {
     }
   }
 
-  private async getCached<T>(key: string, loader: () => Promise<T>): Promise<T> {
+  private async getCached<T>(key: string, ttlMs: number, loader: () => Promise<T>): Promise<T> {
     const cached = this.cache.get(key);
     if (cached && cached.expiresAt > Date.now()) {
       return cached.value as T;
@@ -113,7 +121,7 @@ export class KrxService {
 
     const promise = loader()
       .then((value) => {
-        this.cache.set(key, { value, expiresAt: Date.now() + KRX_CACHE_TTL_MS });
+        this.cache.set(key, { value, expiresAt: Date.now() + ttlMs });
         return value;
       })
       .finally(() => {

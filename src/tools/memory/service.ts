@@ -52,54 +52,97 @@ export interface MemorySearchResult {
 
 const GITHUB_API_BASE = "https://api.github.com";
 const REQUEST_TIMEOUT_MS = 30_000;
+const LIST_CACHE_TTL_MS = 60_000;
+const READ_CACHE_TTL_MS = 30_000;
+
+interface CacheEntry<T> {
+  expiresAt: number;
+  value: T;
+}
 
 export class MemoryService {
   private readonly repo = MEMORY_SPACE_REPO;
   private readonly branch = MEMORY_SPACE_BRANCH;
   private readonly token: string;
+  private readonly listCache = new Map<string, CacheEntry<MemoryEntry[]>>();
+  private readonly readCache = new Map<string, CacheEntry<MemoryFile>>();
+  private readonly listInFlight = new Map<string, Promise<MemoryEntry[]>>();
+  private readonly readInFlight = new Map<string, Promise<MemoryFile>>();
 
   constructor(options: MemoryServiceOptions) {
     this.token = options.token;
   }
 
+  private invalidateCachesForPath(path: string): void {
+    this.readCache.delete(path);
+    const parentSegments = path.split("/").slice(0, -1);
+    const parent = parentSegments.join("/");
+    this.listCache.delete(parent);
+  }
+
   async list(path?: string): Promise<MemoryEntry[]> {
-    const data = await this.githubFetch<GithubContentsResponse>(
-      "GET",
-      this.contentsUrl(path ?? ""),
-    );
-
-    if (Array.isArray(data)) {
-      return data.map(toMemoryEntry);
+    const key = path ?? "";
+    const cached = this.listCache.get(key);
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.value;
     }
+    const inFlight = this.listInFlight.get(key);
+    if (inFlight) return inFlight;
 
-    throw new Error(
-      `Path refers to a file, not a directory: ${path ?? "/"}. Use memory_read instead.`,
-    );
+    const promise = (async () => {
+      const data = await this.githubFetch<GithubContentsResponse>(
+        "GET",
+        this.contentsUrl(key),
+      );
+      if (Array.isArray(data)) {
+        const entries = data.map(toMemoryEntry);
+        this.listCache.set(key, { value: entries, expiresAt: Date.now() + LIST_CACHE_TTL_MS });
+        return entries;
+      }
+      throw new Error(
+        `Path refers to a file, not a directory: ${path ?? "/"}. Use memory_read instead.`,
+      );
+    })().finally(() => {
+      this.listInFlight.delete(key);
+    });
+    this.listInFlight.set(key, promise);
+    return promise;
   }
 
   async read(path: string): Promise<MemoryFile> {
-    const data = await this.githubFetch<GithubFileResponse>(
-      "GET",
-      this.contentsUrl(path),
-    );
-
-    if (Array.isArray(data) || data.type !== "file") {
-      throw new Error(`Path is not a file: ${path}`);
+    const cached = this.readCache.get(path);
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.value;
     }
+    const inFlight = this.readInFlight.get(path);
+    if (inFlight) return inFlight;
 
-    const encoding = data.encoding ?? "base64";
-    if (encoding !== "base64") {
-      throw new Error(`Unsupported encoding for ${path}: ${encoding}`);
-    }
-
-    const content = Buffer.from(data.content ?? "", "base64").toString("utf8");
-
-    return {
-      path: data.path,
-      content,
-      sha: data.sha,
-      size: data.size,
-    };
+    const promise = (async () => {
+      const data = await this.githubFetch<GithubFileResponse>(
+        "GET",
+        this.contentsUrl(path),
+      );
+      if (Array.isArray(data) || data.type !== "file") {
+        throw new Error(`Path is not a file: ${path}`);
+      }
+      const encoding = data.encoding ?? "base64";
+      if (encoding !== "base64") {
+        throw new Error(`Unsupported encoding for ${path}: ${encoding}`);
+      }
+      const content = Buffer.from(data.content ?? "", "base64").toString("utf8");
+      const file: MemoryFile = {
+        path: data.path,
+        content,
+        sha: data.sha,
+        size: data.size,
+      };
+      this.readCache.set(path, { value: file, expiresAt: Date.now() + READ_CACHE_TTL_MS });
+      return file;
+    })().finally(() => {
+      this.readInFlight.delete(path);
+    });
+    this.readInFlight.set(path, promise);
+    return promise;
   }
 
   async write(
@@ -123,6 +166,7 @@ export class MemoryService {
       body,
     );
 
+    this.invalidateCachesForPath(path);
     return {
       path: data.content.path,
       sha: data.content.sha,
@@ -147,6 +191,7 @@ export class MemoryService {
       },
     );
 
+    this.invalidateCachesForPath(path);
     return {
       path,
       commit: { sha: data.commit.sha, url: data.commit.html_url },

@@ -29,7 +29,7 @@ interface TelegramClientOptions {
   session: string;
 }
 
-const DIALOG_CACHE_TTL_MS = 60_000;
+const DIALOG_CACHE_TTL_MS = 5 * 60_000;
 
 function normalize(value: string): string {
   return value.trim().toLowerCase();

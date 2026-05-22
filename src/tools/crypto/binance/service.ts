@@ -8,6 +8,8 @@ const BINANCE_BASE_URL = "https://api.binance.com/api/v3";
 const BINANCE_REQUEST_TIMEOUT_MS = 15_000;
 const BINANCE_MIN_INTERVAL_MS = 110;
 const SYMBOLS_CACHE_TTL_MS = 60 * 60 * 1000;
+const TICKER_CACHE_TTL_MS = 3 * 1000;
+const KLINES_CACHE_TTL_MS = 15 * 1000;
 
 interface CacheEntry<T> {
   expiresAt: number;
@@ -68,11 +70,14 @@ export class BinanceService {
 
   async getTicker(input: BinanceGetTickerInput) {
     const symbolsParam = JSON.stringify(input.symbols);
-    const json = await this.requestJson<unknown>("ticker/24hr", {
-      symbols: symbolsParam,
+    const cacheKey = `ticker:${symbolsParam}`;
+    return this.getCached(cacheKey, TICKER_CACHE_TTL_MS, async () => {
+      const json = await this.requestJson<unknown>("ticker/24hr", {
+        symbols: symbolsParam,
+      });
+      const rows = Array.isArray(json) ? json : [json];
+      return { rowCount: rows.length, rows };
     });
-    const rows = Array.isArray(json) ? json : [json];
-    return { rowCount: rows.length, rows };
   }
 
   async getKlines(input: BinanceGetKlinesInput) {
@@ -84,23 +89,26 @@ export class BinanceService {
     if (input.startTime !== undefined) params.startTime = String(input.startTime);
     if (input.endTime !== undefined) params.endTime = String(input.endTime);
 
-    const raw = await this.requestJson<Array<Array<unknown>>>("klines", params);
-    if (!Array.isArray(raw)) {
-      throw new Error(`Binance klines response was not an array for ${input.symbol}.`);
-    }
-    const rows = raw.map((row) => {
-      const obj: Record<string, unknown> = {};
-      for (let i = 0; i < KLINE_FIELDS.length; i++) {
-        obj[KLINE_FIELDS[i]] = row[i];
+    const cacheKey = `klines:${new URLSearchParams(params).toString()}`;
+    return this.getCached(cacheKey, KLINES_CACHE_TTL_MS, async () => {
+      const raw = await this.requestJson<Array<Array<unknown>>>("klines", params);
+      if (!Array.isArray(raw)) {
+        throw new Error(`Binance klines response was not an array for ${input.symbol}.`);
       }
-      return obj;
+      const rows = raw.map((row) => {
+        const obj: Record<string, unknown> = {};
+        for (let i = 0; i < KLINE_FIELDS.length; i++) {
+          obj[KLINE_FIELDS[i]] = row[i];
+        }
+        return obj;
+      });
+      return {
+        symbol: input.symbol,
+        interval: input.interval,
+        rowCount: rows.length,
+        rows,
+      };
     });
-    return {
-      symbol: input.symbol,
-      interval: input.interval,
-      rowCount: rows.length,
-      rows,
-    };
   }
 
   private async requestJson<T>(path: string, params: Record<string, string>): Promise<T> {

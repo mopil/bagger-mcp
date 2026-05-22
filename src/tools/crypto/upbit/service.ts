@@ -8,6 +8,8 @@ const UPBIT_BASE_URL = "https://api.upbit.com/v1";
 const UPBIT_REQUEST_TIMEOUT_MS = 15_000;
 const UPBIT_MIN_INTERVAL_MS = 110;
 const MARKETS_CACHE_TTL_MS = 60 * 60 * 1000;
+const TICKER_CACHE_TTL_MS = 3 * 1000;
+const CANDLES_CACHE_TTL_MS = 15 * 1000;
 
 interface CacheEntry<T> {
   expiresAt: number;
@@ -44,10 +46,12 @@ export class UpbitService {
   }
 
   async getTicker(input: UpbitGetTickerInput) {
-    const rows = await this.requestArray("ticker", {
-      markets: input.markets.join(","),
+    const markets = input.markets.join(",");
+    const cacheKey = `ticker:${markets}`;
+    return this.getCached(cacheKey, TICKER_CACHE_TTL_MS, async () => {
+      const rows = await this.requestArray("ticker", { markets });
+      return { rowCount: rows.length, rows };
     });
-    return { rowCount: rows.length, rows };
   }
 
   async getCandles(input: UpbitGetCandlesInput) {
@@ -56,13 +60,16 @@ export class UpbitService {
     if (input.count !== undefined) params.count = String(input.count);
     if (input.to !== undefined) params.to = input.to;
 
-    const rows = await this.requestArray(path, params);
-    return {
-      market: input.market,
-      interval: input.interval,
-      rowCount: rows.length,
-      rows,
-    };
+    const cacheKey = `candles:${path}:${new URLSearchParams(params).toString()}`;
+    return this.getCached(cacheKey, CANDLES_CACHE_TTL_MS, async () => {
+      const rows = await this.requestArray(path, params);
+      return {
+        market: input.market,
+        interval: input.interval,
+        rowCount: rows.length,
+        rows,
+      };
+    });
   }
 
   private async requestArray(

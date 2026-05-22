@@ -29,8 +29,18 @@ interface IndexedCorpEntry extends CorpEntry {
 
 interface CorpCodeCache {
   entries: IndexedCorpEntry[];
+  byFirstChar: Map<string, IndexedCorpEntry[]>;
   loadedAt: number;
 }
+
+interface CacheEntry<T> {
+  expiresAt: number;
+  value: T;
+}
+
+const TTL_LIST_MS = 5 * 60 * 1000;
+const TTL_COMPANY_MS = 60 * 60 * 1000;
+const TTL_FINANCIALS_MS = 6 * 60 * 60 * 1000;
 
 export interface DartServiceOptions {
   apiKey: string;
@@ -40,24 +50,49 @@ export class DartService {
   private readonly apiKey: string;
   private corpCache: CorpCodeCache | null = null;
   private corpLoadInFlight: Promise<CorpCodeCache> | null = null;
+  private readonly cache = new Map<string, CacheEntry<unknown>>();
+  private readonly inFlight = new Map<string, Promise<unknown>>();
 
   constructor(options: DartServiceOptions) {
     this.apiKey = options.apiKey;
+  }
+
+  warmup(): void {
+    void this.getCorpCache().catch(() => {});
   }
 
   async searchCorp(input: DartSearchCorpInput) {
     const cache = await this.getCorpCache();
     const query = input.query.trim();
     const queryLower = query.toLowerCase();
+    const firstChar = query.charAt(0);
 
+    // Fast path: prefix/exact 매칭은 첫 글자 인덱스만 스캔.
+    // 포함(includes)/영문 매칭은 전체 스캔이 필요하므로 두 패스로 나눔.
     const scored: Array<{ entry: IndexedCorpEntry; score: number }> = [];
+    const fastBucket = cache.byFirstChar.get(firstChar);
+    const seen = new Set<string>();
+
+    if (fastBucket) {
+      for (const entry of fastBucket) {
+        if (input.only_listed && !entry.stock_code) continue;
+        const name = entry.corp_name;
+        if (name === query) {
+          scored.push({ entry, score: 0 });
+          seen.add(entry.corp_code);
+        } else if (name.startsWith(query)) {
+          scored.push({ entry, score: 1 + (name.length - query.length) });
+          seen.add(entry.corp_code);
+        }
+      }
+    }
+
     for (const entry of cache.entries) {
+      if (seen.has(entry.corp_code)) continue;
       if (input.only_listed && !entry.stock_code) continue;
       const name = entry.corp_name;
       let score: number | null = null;
-      if (name === query) score = 0;
-      else if (name.startsWith(query)) score = 1 + (name.length - query.length);
-      else if (name.includes(query)) score = 20 + (name.length - query.length);
+      if (name.includes(query)) score = 20 + (name.length - query.length);
       else if (entry.corp_eng_name_lower.includes(queryLower))
         score = 40 + (entry.corp_eng_name.length - query.length);
       if (score !== null) scored.push({ entry, score });
@@ -85,39 +120,71 @@ export class DartService {
       page_no: String(input.page_no),
     };
     if (input.pblntf_ty) params.pblntf_ty = input.pblntf_ty;
-    const json = await this.requestJson<DartListResponse>("list.json", params);
-    return {
-      status: json.status,
-      message: json.message,
-      page_no: json.page_no,
-      page_count: json.page_count,
-      total_count: json.total_count,
-      total_page: json.total_page,
-      rowCount: json.list?.length ?? 0,
-      rows: json.list ?? [],
-    };
+    const cacheKey = `list:${new URLSearchParams(params).toString()}`;
+    return this.getCached(cacheKey, TTL_LIST_MS, async () => {
+      const json = await this.requestJson<DartListResponse>("list.json", params);
+      return {
+        status: json.status,
+        message: json.message,
+        page_no: json.page_no,
+        page_count: json.page_count,
+        total_count: json.total_count,
+        total_page: json.total_page,
+        rowCount: json.list?.length ?? 0,
+        rows: json.list ?? [],
+      };
+    });
   }
 
   async getCompany(input: DartGetCompanyInput) {
-    const json = await this.requestJson<DartCompanyResponse>("company.json", {
-      corp_code: input.corp_code,
+    const cacheKey = `company:${input.corp_code}`;
+    return this.getCached(cacheKey, TTL_COMPANY_MS, async () => {
+      return this.requestJson<DartCompanyResponse>("company.json", {
+        corp_code: input.corp_code,
+      });
     });
-    return json;
   }
 
   async getFinancials(input: DartGetFinancialsInput) {
-    const json = await this.requestJson<DartFinancialResponse>("fnlttSinglAcntAll.json", {
-      corp_code: input.corp_code,
-      bsns_year: input.bsns_year,
-      reprt_code: input.reprt_code,
-      fs_div: input.fs_div,
+    const cacheKey = `fin:${input.corp_code}:${input.bsns_year}:${input.reprt_code}:${input.fs_div}`;
+    return this.getCached(cacheKey, TTL_FINANCIALS_MS, async () => {
+      const json = await this.requestJson<DartFinancialResponse>("fnlttSinglAcntAll.json", {
+        corp_code: input.corp_code,
+        bsns_year: input.bsns_year,
+        reprt_code: input.reprt_code,
+        fs_div: input.fs_div,
+      });
+      return {
+        status: json.status,
+        message: json.message,
+        rowCount: json.list?.length ?? 0,
+        rows: json.list ?? [],
+      };
     });
-    return {
-      status: json.status,
-      message: json.message,
-      rowCount: json.list?.length ?? 0,
-      rows: json.list ?? [],
-    };
+  }
+
+  private async getCached<T>(key: string, ttlMs: number, loader: () => Promise<T>): Promise<T> {
+    const cached = this.cache.get(key);
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.value as T;
+    }
+
+    const inFlight = this.inFlight.get(key);
+    if (inFlight) {
+      return inFlight as Promise<T>;
+    }
+
+    const promise = loader()
+      .then((value) => {
+        this.cache.set(key, { value, expiresAt: Date.now() + ttlMs });
+        return value;
+      })
+      .finally(() => {
+        this.inFlight.delete(key);
+      });
+
+    this.inFlight.set(key, promise);
+    return promise;
   }
 
   private async requestJson<T>(path: string, params: Record<string, string>): Promise<T> {
@@ -182,7 +249,17 @@ export class DartService {
 
     const xml = await extractFirstZipEntry(buffer);
     const entries = parseCorpXml(xml);
-    return { entries, loadedAt: Date.now() };
+    const byFirstChar = new Map<string, IndexedCorpEntry[]>();
+    for (const entry of entries) {
+      const ch = entry.corp_name.charAt(0);
+      let bucket = byFirstChar.get(ch);
+      if (!bucket) {
+        bucket = [];
+        byFirstChar.set(ch, bucket);
+      }
+      bucket.push(entry);
+    }
+    return { entries, byFirstChar, loadedAt: Date.now() };
   }
 }
 
