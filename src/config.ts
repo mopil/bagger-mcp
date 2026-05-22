@@ -23,6 +23,7 @@ export interface AppConfig {
   githubToken: string;
   krxAuthKey: string;
   coingeckoApiKey?: string;
+  dartApiKey: string;
 }
 
 export function getConfig(): AppConfig {
@@ -47,5 +48,6 @@ export function getConfig(): AppConfig {
     githubToken: requireEnv("GITHUB_TOKEN"),
     krxAuthKey: requireEnv("KRX_AUTH_KEY"),
     coingeckoApiKey: process.env.COINGECKO_API_KEY?.trim() || undefined,
+    dartApiKey: requireEnv("DART_API_KEY"),
   };
 }

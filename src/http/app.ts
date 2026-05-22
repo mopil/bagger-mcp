@@ -5,9 +5,11 @@ import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 
 import type { AppConfig } from "../config.js";
 import { createMcpServer } from "../mcp/createServer.js";
+import type { ServiceRegistry } from "../mcp/services.js";
 import { BinanceService } from "../tools/crypto/binance/service.js";
 import { BithumbService } from "../tools/crypto/bithumb/service.js";
 import { CoingeckoService } from "../tools/crypto/coingecko/service.js";
+import { DartService } from "../tools/dart/service.js";
 import { GrokService } from "../tools/grok/service.js";
 import { KrxService } from "../tools/krx/service.js";
 import { MemoryService } from "../tools/memory/service.js";
@@ -23,25 +25,22 @@ interface ManagedTransport {
 }
 
 export function createApp(config: AppConfig) {
-  const telegramService = new TelegramService({
-    apiId: config.telegramApiId,
-    apiHash: config.telegramApiHash,
-    session: config.telegramSession,
-  });
-  const grokService = new GrokService({
-    apiKey: config.xaiApiKey,
-  });
-  const yahooFinanceService = new YahooFinanceService();
-  const memoryService = new MemoryService({
-    token: config.githubToken,
-  });
-  const krxService = new KrxService({
-    authKey: config.krxAuthKey,
-  });
-  const upbitService = new UpbitService();
-  const bithumbService = new BithumbService();
-  const binanceService = new BinanceService();
-  const coingeckoService = new CoingeckoService({ apiKey: config.coingeckoApiKey });
+  const services: ServiceRegistry = {
+    telegramService: new TelegramService({
+      apiId: config.telegramApiId,
+      apiHash: config.telegramApiHash,
+      session: config.telegramSession,
+    }),
+    grokService: new GrokService({ apiKey: config.xaiApiKey }),
+    yahooFinanceService: new YahooFinanceService(),
+    memoryService: new MemoryService({ token: config.githubToken }),
+    krxService: new KrxService({ authKey: config.krxAuthKey }),
+    upbitService: new UpbitService(),
+    bithumbService: new BithumbService(),
+    binanceService: new BinanceService(),
+    coingeckoService: new CoingeckoService({ apiKey: config.coingeckoApiKey }),
+    dartService: new DartService({ apiKey: config.dartApiKey }),
+  };
   const transports = new Map<string, ManagedTransport>();
   const mcpPath = `/mcp/${config.pathSecret}`;
 
@@ -62,15 +61,7 @@ export function createApp(config: AppConfig) {
         body: req.body,
         res,
         transports,
-        telegramService,
-        grokService,
-        yahooFinanceService,
-        memoryService,
-        krxService,
-        upbitService,
-        bithumbService,
-        binanceService,
-        coingeckoService,
+        services,
       });
       if (!transport) {
         return;
@@ -145,29 +136,13 @@ async function getOrCreateTransport({
   body,
   res,
   transports,
-  telegramService,
-  grokService,
-  yahooFinanceService,
-  memoryService,
-  krxService,
-  upbitService,
-  bithumbService,
-  binanceService,
-  coingeckoService,
+  services,
 }: {
   sessionId: string | undefined;
   body: unknown;
   res: Response;
   transports: Map<string, ManagedTransport>;
-  telegramService: TelegramService;
-  grokService: GrokService;
-  yahooFinanceService: YahooFinanceService;
-  memoryService: MemoryService;
-  krxService: KrxService;
-  upbitService: UpbitService;
-  bithumbService: BithumbService;
-  binanceService: BinanceService;
-  coingeckoService: CoingeckoService;
+  services: ServiceRegistry;
 }): Promise<StreamableHTTPServerTransport | null> {
   if (sessionId) {
     const existingManagedTransport = transports.get(sessionId);
@@ -213,7 +188,7 @@ async function getOrCreateTransport({
     }
   };
 
-  const server = createMcpServer({ telegramService, grokService, yahooFinanceService, memoryService, krxService, upbitService, bithumbService, binanceService, coingeckoService });
+  const server = createMcpServer(services);
   await server.connect(transport);
   const originalOnClose = transport.onclose;
   transport.onclose = () => {
