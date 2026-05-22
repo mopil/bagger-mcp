@@ -1,9 +1,10 @@
-import express, { type Request, type Response } from "express";
+import express, { type NextFunction, type Request, type Response } from "express";
 import { randomUUID } from "node:crypto";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 
 import type { AppConfig } from "../config.js";
+import { logger } from "../logger.js";
 import { createMcpServer } from "../mcp/createServer.js";
 import type { ServiceRegistry } from "../mcp/services.js";
 import { BinanceService } from "../tools/crypto/binance/service.js";
@@ -41,12 +42,14 @@ export function createApp(config: AppConfig) {
     coingeckoService: new CoingeckoService({ apiKey: config.coingeckoApiKey }),
     dartService: new DartService({ apiKey: config.dartApiKey }),
   };
+  services.dartService.warmup();
   const transports = new Map<string, ManagedTransport>();
   const mcpPath = `/mcp/${config.pathSecret}`;
 
   const app = express();
   app.set("trust proxy", true);
   app.use(express.json({ limit: "1mb" }));
+  app.use(requestLoggingMiddleware);
 
   app.get("/health", (_req: Request, res: Response) => {
     res.status(200).json({ ok: true });
@@ -69,6 +72,7 @@ export function createApp(config: AppConfig) {
 
       await transport.handleRequest(req, res, req.body);
     } catch (error) {
+      logger.error("mcp.post_failed", { sessionId, err: error });
       sendInternalError(res, error);
     }
   });
@@ -82,6 +86,7 @@ export function createApp(config: AppConfig) {
     try {
       await transport.handleRequest(req, res);
     } catch (error) {
+      logger.error("mcp.get_failed", { sessionId: transport.sessionId, err: error });
       sendInternalError(res, error);
     }
   });
@@ -96,11 +101,35 @@ export function createApp(config: AppConfig) {
       await transport.close();
       res.status(204).end();
     } catch (error) {
+      logger.error("mcp.delete_failed", { sessionId: transport.sessionId, err: error });
       sendInternalError(res, error);
     }
   });
 
   return app;
+}
+
+function requestLoggingMiddleware(req: Request, res: Response, next: NextFunction): void {
+  const requestId = req.header("x-request-id") ?? randomUUID();
+  const sessionId = req.header("mcp-session-id");
+  const start = Date.now();
+
+  res.setHeader("x-request-id", requestId);
+
+  res.on("finish", () => {
+    const durationMs = Date.now() - start;
+    const level = res.statusCode >= 500 ? "warn" : "info";
+    logger[level]("http.request", {
+      requestId,
+      sessionId,
+      method: req.method,
+      path: req.path,
+      status: res.statusCode,
+      durationMs,
+    });
+  });
+
+  next();
 }
 
 function requireSessionTransport(
@@ -120,6 +149,7 @@ function requireSessionTransport(
 
   const managedTransport = transports.get(sessionId);
   if (!managedTransport) {
+    logger.warn("mcp.session_unknown", { sessionId });
     res.status(404).json({
       error: "Not Found",
       message: "Unknown MCP session.",
@@ -147,6 +177,7 @@ async function getOrCreateTransport({
   if (sessionId) {
     const existingManagedTransport = transports.get(sessionId);
     if (!existingManagedTransport) {
+      logger.warn("mcp.session_unknown", { sessionId });
       res.status(404).json({
         error: "Not Found",
         message: "Unknown MCP session.",
@@ -159,6 +190,7 @@ async function getOrCreateTransport({
   }
 
   if (!isInitializeRequest(body)) {
+    logger.warn("mcp.init_required");
     res.status(400).json({
       error: "Bad Request",
       message: "Initialization request required when no MCP session exists.",
@@ -174,6 +206,10 @@ async function getOrCreateTransport({
         transport,
         idleTimer: createIdleTimer(initializedSessionId, transport, transports),
       });
+      logger.info("mcp.session_opened", {
+        sessionId: initializedSessionId,
+        activeSessions: transports.size,
+      });
     },
   });
 
@@ -185,6 +221,10 @@ async function getOrCreateTransport({
         clearTimeout(managedTransport.idleTimer);
       }
       transports.delete(activeSessionId);
+      logger.info("mcp.session_closed", {
+        sessionId: activeSessionId,
+        activeSessions: transports.size,
+      });
     }
   };
 
@@ -221,6 +261,10 @@ function createIdleTimer(
       return;
     }
 
+    logger.info("mcp.session_idle_expired", {
+      sessionId,
+      idleTtlMs: SESSION_IDLE_TTL_MS,
+    });
     void transport.close();
   }, SESSION_IDLE_TTL_MS);
 }
