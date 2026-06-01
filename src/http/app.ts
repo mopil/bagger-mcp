@@ -14,6 +14,7 @@ import { DartService } from "../tools/dart/service.js";
 import { GrokService } from "../tools/grok/service.js";
 import { KrxService } from "../tools/krx/service.js";
 import { MemoryService } from "../tools/memory/service.js";
+import { NaverlandService } from "../tools/naverland/service.js";
 import { TelegramService } from "../tools/telegram/service.js";
 import { UpbitService } from "../tools/crypto/upbit/service.js";
 import { YahooFinanceService } from "../tools/yahoo-finance/service.js";
@@ -41,6 +42,7 @@ export function createApp(config: AppConfig) {
     binanceService: new BinanceService(),
     coingeckoService: new CoingeckoService({ apiKey: config.coingeckoApiKey }),
     dartService: new DartService({ apiKey: config.dartApiKey }),
+    naverlandService: new NaverlandService(),
   };
   services.dartService.warmup();
   const transports = new Map<string, ManagedTransport>();
