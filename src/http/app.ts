@@ -4,6 +4,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 
 import type { AppConfig } from "../config.js";
+import { formatError } from "../errors.js";
 import { logger } from "../logger.js";
 import { createMcpServer } from "../mcp/createServer.js";
 import type { ServiceRegistry } from "../mcp/services.js";
@@ -248,7 +249,7 @@ function sendInternalError(res: Response, error: unknown): void {
 
   res.status(500).json({
     error: "Internal Server Error",
-    message: error instanceof Error ? error.message : "Unknown error",
+    message: formatError(error),
   });
 }
 

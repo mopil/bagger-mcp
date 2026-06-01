@@ -105,6 +105,18 @@ export const naverlandSearchCommercialInputSchema = {
     .describe("조회할 최대 페이지 수 (페이지당 ~20건). rate limit 방지용 (기본 3, 최대 5)."),
 } satisfies z.ZodRawShape;
 
+export const naverlandGetArticleDetailInputSchema = {
+  article_no: z
+    .string()
+    .regex(/^\d+$/, "article_no는 숫자 문자열(articleNo)이어야 합니다.")
+    .describe("매물 고유번호(articleNo). search_apartments/search_commercial 결과의 articleNo."),
+  complex_no: z
+    .string()
+    .regex(/^\d+$/, "complex_no는 숫자 문자열이어야 합니다.")
+    .optional()
+    .describe("아파트 매물일 경우 단지번호(complexNo). 상가/사무실은 불필요."),
+} satisfies z.ZodRawShape;
+
 export const naverlandWatchComplexesInputSchema = {
   complex_names: z
     .array(z.string().min(1))
@@ -130,6 +142,9 @@ export type NaverlandGetComplexPriceInfoInput = z.infer<
 >;
 export type NaverlandSearchCommercialInput = z.infer<
   z.ZodObject<typeof naverlandSearchCommercialInputSchema>
+>;
+export type NaverlandGetArticleDetailInput = z.infer<
+  z.ZodObject<typeof naverlandGetArticleDetailInputSchema>
 >;
 export type NaverlandWatchComplexesInput = z.infer<
   z.ZodObject<typeof naverlandWatchComplexesInputSchema>

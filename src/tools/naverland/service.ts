@@ -1,4 +1,5 @@
 import type {
+  NaverlandGetArticleDetailInput,
   NaverlandGetComplexInfoInput,
   NaverlandGetComplexPriceInfoInput,
   NaverlandResolveDistrictInput,
@@ -225,6 +226,64 @@ export class NaverlandService {
       count: items.length,
       items,
     };
+  }
+
+  async getArticleDetail(input: NaverlandGetArticleDetailInput) {
+    const suffix = input.complex_no ? `?complexNo=${input.complex_no}` : "";
+    const key = `articleDetail:${input.article_no}:${input.complex_no ?? ""}`;
+    return this.getCached(key, TTL_ARTICLES_MS, async () => {
+      const data = await this.request<RawArticleDetailResponse>(
+        `/articles/${input.article_no}${suffix}`,
+      );
+      const d = data.articleDetail;
+      if (!d) return { found: false, articleNo: input.article_no };
+
+      const add = data.articleAddition ?? {};
+      const fac = data.articleFacility ?? {};
+      const desc = d.detailDescription ?? "";
+      const feature = d.articleFeatureDescription ?? "";
+      const tags = d.tagList ?? add.tagList ?? [];
+      const haystack = `${feature} ${desc} ${tags.join(",")}`;
+
+      return {
+        found: true,
+        articleNo: d.articleNo ?? input.article_no,
+        articleName: d.articleName,
+        realestateTypeName: d.realestateTypeName,
+        tradeTypeName: d.tradeTypeName,
+        dealOrWarrantPrc: add.dealOrWarrantPrc,
+        rentPrc: add.rentPrc,
+        depositManwon: parsePriceManwon(add.dealOrWarrantPrc),
+        rentManwon: parsePriceManwon(add.rentPrc),
+        // 건축물 용도: 제2종 근린생활시설 등. 스터디룸/독서실 가능 여부 판단 핵심.
+        lawUsage: d.lawUsage,
+        buildingUse: fac.buildingUseAprvTypeName,
+        buildingUseAprvYmd: fac.buildingUseAprvYmd,
+        floorAreaRatio: fac.floorAreaRatio,
+        buildingCoverageRatio: fac.buildingCoverageRatio,
+        area1: add.area1,
+        area2: add.area2,
+        buildingSpace: data.articleSpace?.buildingSpace,
+        floorInfo: add.floorInfo,
+        roomCount: d.roomCount,
+        bathroomCount: d.bathroomCount,
+        direction: fac.directionTypeName ?? add.direction,
+        moveInTypeName: d.moveInTypeName,
+        moveInPossibleYmd: d.moveInPossibleYmd,
+        parkingCount: d.parkingCount,
+        parkingPossibleYN: d.parkingPossibleYN,
+        exposureAddress: d.exposureAddress,
+        walkingTimeToNearSubway: d.walkingTimeToNearSubway,
+        articleConfirmYMD: d.articleConfirmYMD,
+        // 전대차(재임대) 언급 여부 — 네이버에 전용 필드가 없어 설명/태그에서 추출.
+        subleaseMentioned: /전대|재임대/.test(haystack),
+        tagList: tags,
+        featureDescription: feature,
+        detailDescription: desc,
+        realtorName: data.articleRealtor?.realtorName,
+        link: `https://m.land.naver.com/article/info/${input.article_no}`,
+      };
+    });
   }
 
   async getComplexInfo(input: NaverlandGetComplexInfoInput) {
@@ -647,6 +706,46 @@ interface ArticleItem {
   articleFeatureDesc?: string;
   realtorName?: string;
   cortarAddress?: string;
+}
+
+interface RawArticleDetailResponse {
+  articleDetail?: {
+    articleNo?: string;
+    articleName?: string;
+    realestateTypeName?: string;
+    tradeTypeName?: string;
+    lawUsage?: string;
+    roomCount?: number;
+    bathroomCount?: number;
+    moveInTypeName?: string;
+    moveInPossibleYmd?: string;
+    parkingCount?: number;
+    parkingPossibleYN?: string;
+    exposureAddress?: string;
+    walkingTimeToNearSubway?: number;
+    articleConfirmYMD?: string;
+    articleFeatureDescription?: string;
+    detailDescription?: string;
+    tagList?: string[];
+  };
+  articleAddition?: {
+    dealOrWarrantPrc?: string;
+    rentPrc?: string;
+    area1?: number;
+    area2?: number;
+    floorInfo?: string;
+    direction?: string;
+    tagList?: string[];
+  };
+  articleFacility?: {
+    directionTypeName?: string;
+    buildingUseAprvYmd?: string;
+    buildingUseAprvTypeName?: string;
+    floorAreaRatio?: number;
+    buildingCoverageRatio?: number;
+  };
+  articleSpace?: { buildingSpace?: unknown };
+  articleRealtor?: { realtorName?: string };
 }
 
 interface CommercialItem {

@@ -1,6 +1,7 @@
 import { defineServiceTool } from "../defineTool.js";
 import type { ServiceRegistry } from "../../mcp/services.js";
 import {
+  naverlandGetArticleDetailInputSchema,
   naverlandGetComplexInfoInputSchema,
   naverlandGetComplexPriceInfoInputSchema,
   naverlandListDistrictsInputSchema,
@@ -46,6 +47,14 @@ export const naverlandTools = [
     inputSchema: naverlandSearchCommercialInputSchema,
     run(args, { naverlandService }) {
       return naverlandService.searchCommercial(args);
+    },
+  }),
+  tool({
+    name: "naverland_get_article_detail",
+    description: `${NOTE} 개별 매물 상세조회. 건축물 용도(lawUsage: 제2종 근린생활시설 등)·전대차 언급 여부(subleaseMentioned)·전체 설명·주차·입주·건폐율/용적률 반환. search_commercial/search_apartments 결과의 articleNo로 호출.`,
+    inputSchema: naverlandGetArticleDetailInputSchema,
+    run(args, { naverlandService }) {
+      return naverlandService.getArticleDetail(args);
     },
   }),
   tool({
