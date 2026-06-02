@@ -12,7 +12,11 @@ const inflateRawAsync = promisify(inflateRaw);
 
 const DART_BASE_URL = "https://opendart.fss.or.kr/api";
 const DART_REQUEST_TIMEOUT_MS = 20_000;
-// CORPCODE.xml zip은 ~1.4MB → 압축해제 후 100k 엔트리. 하루 1회 갱신으로 충분.
+// corpCode.xml zip은 ~3.5MB(압축해제 후 100k 엔트리). OpenDART는 한국 서버라
+// 해외 리전(Railway 등)에선 처리량이 낮아 20s로는 부족 → 전용 긴 타임아웃 + 재시도.
+const CORP_CODE_TIMEOUT_MS = 120_000;
+const CORP_CODE_MAX_RETRIES = 3;
+// CORPCODE.xml zip은 ~3.5MB → 압축해제 후 100k 엔트리. 하루 1회 갱신으로 충분.
 const CORP_CODE_TTL_MS = 24 * 60 * 60 * 1000;
 
 interface CorpEntry {
@@ -58,7 +62,21 @@ export class DartService {
   }
 
   warmup(): void {
-    void this.getCorpCache().catch(() => {});
+    // 부팅 시 백그라운드로 회사코드 캐시를 미리 채운다. 첫 다운로드가 느리거나
+    // 실패해도 사용자 호출이 매번 풀 다운로드를 떠안지 않도록 지수 백오프로 재시도.
+    void this.warmupWithRetry();
+  }
+
+  private async warmupWithRetry(): Promise<void> {
+    for (let attempt = 0; attempt < 5; attempt++) {
+      try {
+        await this.getCorpCache();
+        return;
+      } catch {
+        const delay = Math.min(60_000, 5_000 * 2 ** attempt);
+        await sleep(delay);
+      }
+    }
   }
 
   async searchCorp(input: DartSearchCorpInput) {
@@ -233,20 +251,7 @@ export class DartService {
   }
 
   private async loadCorpCache(): Promise<CorpCodeCache> {
-    const url = `${DART_BASE_URL}/corpCode.xml?crtfc_key=${this.apiKey}`;
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), DART_REQUEST_TIMEOUT_MS);
-    let buffer: Buffer;
-    try {
-      const response = await fetch(url, { method: "GET", signal: controller.signal });
-      if (!response.ok) {
-        throw new Error(`DART corpCode fetch failed: ${response.status} ${response.statusText}`);
-      }
-      buffer = Buffer.from(await response.arrayBuffer());
-    } finally {
-      clearTimeout(timer);
-    }
-
+    const buffer = await this.fetchCorpCodeZip();
     const xml = await extractFirstZipEntry(buffer);
     const entries = parseCorpXml(xml);
     const byFirstChar = new Map<string, IndexedCorpEntry[]>();
@@ -261,6 +266,36 @@ export class DartService {
     }
     return { entries, byFirstChar, loadedAt: Date.now() };
   }
+
+  // 3.5MB zip을 전용 타임아웃으로 받되, 느린 해외 링크/일시적 throttling 대비 재시도.
+  private async fetchCorpCodeZip(): Promise<Buffer> {
+    const url = `${DART_BASE_URL}/corpCode.xml?crtfc_key=${this.apiKey}`;
+    let lastError: unknown;
+    for (let attempt = 0; attempt < CORP_CODE_MAX_RETRIES; attempt++) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), CORP_CODE_TIMEOUT_MS);
+      try {
+        const response = await fetch(url, { method: "GET", signal: controller.signal });
+        if (!response.ok) {
+          throw new Error(`DART corpCode fetch failed: ${response.status} ${response.statusText}`);
+        }
+        return Buffer.from(await response.arrayBuffer());
+      } catch (error) {
+        lastError = error;
+        if (error instanceof Error && error.name === "AbortError") {
+          lastError = new Error(`DART corpCode download timed out after ${CORP_CODE_TIMEOUT_MS}ms`);
+        }
+        if (attempt < CORP_CODE_MAX_RETRIES - 1) await sleep(2_000 * (attempt + 1));
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+    throw lastError instanceof Error ? lastError : new Error("DART corpCode download failed");
+  }
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 interface DartListResponse {
