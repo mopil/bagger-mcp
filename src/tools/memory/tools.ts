@@ -1,6 +1,7 @@
 import type { ServiceRegistry } from "../../mcp/services.js";
 import { defineServiceTool } from "../defineTool.js";
 import {
+  decisionLogAppendInputSchema,
   memoryCaptureInputSchema,
   memoryListInputSchema,
   memoryReadInputSchema,
@@ -10,6 +11,69 @@ import {
 const tool = defineServiceTool<ServiceRegistry>();
 
 const INBOX_PREFIX = "sources/_inbox/";
+const DECISION_LOG_PATH = "wiki/investing/lessons/decision-log.md";
+const DECISION_LOG_MARKER = "<!-- DECISION_LOG_INSERT_AFTER -->";
+
+interface DecisionLogFields {
+  ticker: string;
+  action: string;
+  size?: string | null;
+  trigger?: string | null;
+  gate?: string[] | null;
+  stop?: string | null;
+  tstop?: string | null;
+  executed?: string | null;
+  pnl?: string | null;
+  principles?: string[] | null;
+  memo?: string | null;
+  result?: string | null;
+}
+
+const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
+
+function nowDateTimeKst(): { date: string; time: string } {
+  // Server TZ is unknown; compute KST (UTC+9) explicitly so US-market trades
+  // logged in KST evening/night don't land on the wrong UTC date.
+  const iso = new Date(Date.now() + KST_OFFSET_MS).toISOString();
+  return { date: iso.slice(0, 10), time: iso.slice(11, 16) };
+}
+
+// Collapse whitespace/newlines so a freeform value can't break the one-line entry.
+function cleanField(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function buildDecisionLine(args: DecisionLogFields, dateTime: string): string {
+  const fields: string[] = [];
+  if (args.trigger) fields.push(`trigger=${args.trigger}`);
+  if (args.gate && args.gate.length > 0) fields.push(`gate=${args.gate.join("+")}`);
+  if (args.stop) fields.push(`stop=${cleanField(args.stop)}`);
+  if (args.tstop) fields.push(`tstop=${cleanField(args.tstop)}`);
+  if (args.executed) fields.push(`executed=${args.executed}`);
+  if (args.pnl) fields.push(`pnl=${cleanField(args.pnl)}`);
+  if (args.principles && args.principles.length > 0) {
+    fields.push(`principles=[${args.principles.join(",")}]`);
+  }
+  if (args.memo) fields.push(`memo=${JSON.stringify(cleanField(args.memo))}`);
+  fields.push(`result=${args.result ?? "tbd"}`);
+
+  const size = args.size ? ` ${cleanField(args.size)}` : "";
+  const head = `- ${dateTime} ${cleanField(args.ticker)} ${args.action}${size}`;
+  return `${head} | ${fields.join(" | ")}`;
+}
+
+function insertDecisionEntry(content: string, line: string): string {
+  if (content.includes(DECISION_LOG_MARKER)) {
+    return content.replace(DECISION_LOG_MARKER, `${DECISION_LOG_MARKER}\n${line}`);
+  }
+  const idx = content.indexOf("## Entries");
+  if (idx !== -1) {
+    const lineEnd = content.indexOf("\n", idx);
+    const pos = lineEnd === -1 ? content.length : lineEnd + 1;
+    return `${content.slice(0, pos)}\n${line}\n${content.slice(pos)}`;
+  }
+  return content.endsWith("\n") ? `${content}${line}\n` : `${content}\n${line}\n`;
+}
 
 function todayIsoDate(): string {
   return new Date().toISOString().slice(0, 10);
@@ -105,6 +169,29 @@ Capture criteria, structuring rules, ingest/lint procedures all live in the repo
       const commitMessage = `capture: _inbox/${filename} — ${args.context}`;
       const result = await memoryService.write(path, body, commitMessage);
       return { result };
+    },
+  }),
+  tool({
+    name: "decision_log_append",
+    description:
+      `Append one structured decision line to ${DECISION_LOG_PATH} in the memory-space repo. Cross-client, in-the-moment trade-decision capture — call right when a buy/add/trim/exit/size decision is made. Read-modify-write, newest on top.
+
+Captures execution telemetry for the "repeatable +EV system" goal: gate (which entry gates passed → 진입 게이트 통과율) and executed (mech | discretionary | skipped → 손절 집행률, the key weakness metric). Aggregation into metrics is a desktop skill, not a tool.
+
+date/time default to KST now; pass them only to override. result defaults to tbd; set win/loss/breakeven/rule-violated on the exit line. Field meanings live in the decision-log.md schema header.`,
+    inputSchema: decisionLogAppendInputSchema,
+    async run(args, { memoryService }) {
+      const now = nowDateTimeKst();
+      const dateTime = `${args.date ?? now.date} ${args.time ?? now.time}`;
+      const line = buildDecisionLine(args, dateTime);
+
+      const file = await memoryService.read(DECISION_LOG_PATH);
+      const updated = insertDecisionEntry(file.content, line);
+
+      const resultTag = args.result && args.result !== "tbd" ? ` (${args.result})` : "";
+      const commitMessage = `decision-log: ${args.ticker} ${args.action}${resultTag}`;
+      const result = await memoryService.write(DECISION_LOG_PATH, updated, commitMessage);
+      return { result, appended: line };
     },
   }),
 ];
