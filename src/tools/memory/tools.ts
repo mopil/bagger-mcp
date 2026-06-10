@@ -15,18 +15,20 @@ const DECISION_LOG_PATH = "wiki/investing/lessons/decision-log.md";
 const DECISION_LOG_MARKER = "<!-- DECISION_LOG_INSERT_AFTER -->";
 
 interface DecisionLogFields {
+  id?: string | null;
   ticker: string;
   action: string;
   size?: string | null;
   trigger?: string | null;
   gate?: string[] | null;
   stop?: string | null;
-  tstop?: string | null;
+  target?: string | null;
+  exitReason?: string | null;
   executed?: string | null;
   pnl?: string | null;
+  result?: string | null;
   principles?: string[] | null;
   memo?: string | null;
-  result?: string | null;
 }
 
 const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
@@ -48,7 +50,8 @@ function buildDecisionLine(args: DecisionLogFields, dateTime: string): string {
   if (args.trigger) fields.push(`trigger=${args.trigger}`);
   if (args.gate && args.gate.length > 0) fields.push(`gate=${args.gate.join("+")}`);
   if (args.stop) fields.push(`stop=${cleanField(args.stop)}`);
-  if (args.tstop) fields.push(`tstop=${cleanField(args.tstop)}`);
+  if (args.target) fields.push(`target=${cleanField(args.target)}`);
+  if (args.exitReason) fields.push(`exit=${args.exitReason}`);
   if (args.executed) fields.push(`executed=${args.executed}`);
   if (args.pnl) fields.push(`pnl=${cleanField(args.pnl)}`);
   if (args.principles && args.principles.length > 0) {
@@ -58,7 +61,8 @@ function buildDecisionLine(args: DecisionLogFields, dateTime: string): string {
   fields.push(`result=${args.result ?? "tbd"}`);
 
   const size = args.size ? ` ${cleanField(args.size)}` : "";
-  const head = `- ${dateTime} ${cleanField(args.ticker)} ${args.action}${size}`;
+  const id = args.id ? ` [${cleanField(args.id)}]` : "";
+  const head = `- ${dateTime}${id} ${cleanField(args.ticker)} ${args.action}${size}`;
   return `${head} | ${fields.join(" | ")}`;
 }
 
@@ -174,11 +178,18 @@ Capture criteria, structuring rules, ingest/lint procedures all live in the repo
   tool({
     name: "decision_log_append",
     description:
-      `Append one structured decision line to ${DECISION_LOG_PATH} in the memory-space repo. Cross-client, in-the-moment trade-decision capture — call right when a buy/add/trim/exit/size decision is made. Read-modify-write, newest on top.
+      `Append one structured decision line to ${DECISION_LOG_PATH} in the memory-space repo. Cross-client, in-the-moment trade-decision capture — call right when an enter/addbuy/trim/exit decision is made. Read-modify-write, newest on top.
 
-Captures execution telemetry for the "repeatable +EV system" goal: gate (which entry gates passed → 진입 게이트 통과율) and executed (mech | discretionary | skipped → 손절 집행률, the key weakness metric). Aggregation into metrics is a desktop skill, not a tool.
+Captures execution telemetry for the "repeatable +EV system" goal. The three target metrics and what feeds them:
+- 진입 게이트 통과율 ← gate (which entry gates passed; empty = impulse — log it honestly).
+- 손절 집행률 (the key weakness metric) ← exitReason=stop 케이스 중 executed=planned 비율. exitReason(why) and executed(how) are orthogonal — fill both on exits.
+- EV per trade / 승률 / 보유기간 ← REQUIRES id to pair a position's enter→addbuy→trim→exit. Always set id (e.g. TSLA-1) starting on enter and reuse it for that position. Without id the lifecycle can't be reconstructed.
 
-date/time default to KST now; pass them only to override. result defaults to tbd; set win/loss/breakeven/rule-violated on the exit line. Field meanings live in the decision-log.md schema header.`,
+Field subsets by action (only send what applies — keeps each call light):
+- enter/addbuy: id, ticker, action, size, trigger, gate, stop, target, memo
+- trim/exit: id, ticker, action, size, exitReason, executed, pnl, result
+
+date/time default to KST now; pass only to override. result defaults to tbd; set win/loss/flat on the exit line. Aggregation into metrics is a desktop skill, not a tool.`,
     inputSchema: decisionLogAppendInputSchema,
     async run(args, { memoryService }) {
       const now = nowDateTimeKst();
@@ -189,7 +200,8 @@ date/time default to KST now; pass them only to override. result defaults to tbd
       const updated = insertDecisionEntry(file.content, line);
 
       const resultTag = args.result && args.result !== "tbd" ? ` (${args.result})` : "";
-      const commitMessage = `decision-log: ${args.ticker} ${args.action}${resultTag}`;
+      const idTag = args.id ? `${args.id} ` : "";
+      const commitMessage = `decision-log: ${idTag}${args.ticker} ${args.action}${resultTag}`;
       const result = await memoryService.write(DECISION_LOG_PATH, updated, commitMessage);
       return { result, appended: line };
     },
