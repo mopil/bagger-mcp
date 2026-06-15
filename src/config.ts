@@ -24,6 +24,8 @@ export interface AppConfig {
   krxAuthKey: string;
   coingeckoApiKey?: string;
   dartApiKey: string;
+  tossClientId?: string;
+  tossClientSecret?: string;
 }
 
 export function getConfig(): AppConfig {
@@ -49,5 +51,7 @@ export function getConfig(): AppConfig {
     krxAuthKey: requireEnv("KRX_AUTH_KEY"),
     coingeckoApiKey: process.env.COINGECKO_API_KEY?.trim() || undefined,
     dartApiKey: requireEnv("DART_API_KEY"),
+    tossClientId: process.env.TOSS_INVEST_API_KEY?.trim() || undefined,
+    tossClientSecret: process.env.TOSS_INVEST_SECRET_KEY?.trim() || undefined,
   };
 }

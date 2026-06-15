@@ -7,6 +7,7 @@ import type { KrxService } from "../tools/krx/service.js";
 import type { MemoryService } from "../tools/memory/service.js";
 import type { NaverlandService } from "../tools/naverland/service.js";
 import type { TelegramService } from "../tools/telegram/service.js";
+import type { TossInvestService } from "../tools/tossinvest/service.js";
 import type { UpbitService } from "../tools/crypto/upbit/service.js";
 import type { YahooFinanceService } from "../tools/yahoo-finance/service.js";
 
@@ -22,4 +23,5 @@ export interface ServiceRegistry {
   coingeckoService: CoingeckoService;
   dartService: DartService;
   naverlandService: NaverlandService;
+  tossInvestService: TossInvestService;
 }
