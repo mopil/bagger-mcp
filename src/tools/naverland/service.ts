@@ -1,3 +1,5 @@
+import { withProxy } from "../../http/proxy.js";
+
 import type {
   NaverlandGetArticleDetailInput,
   NaverlandGetComplexInfoInput,
@@ -68,7 +70,13 @@ interface WatchSnapshot {
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+export interface NaverlandServiceOptions {
+  // 고정 IP egress 프록시 URL(선택). 네이버의 데이터센터 IP 차단 대응.
+  proxyUrl?: string;
+}
+
 export class NaverlandService {
+  private readonly proxyUrl?: string;
   private auth: AuthState | null = null;
   private authInFlight: Promise<AuthState> | null = null;
   private readonly cache = new Map<string, CacheEntry<unknown>>();
@@ -76,6 +84,10 @@ export class NaverlandService {
   private readonly watchSnapshots = new Map<string, WatchSnapshot>();
   // 모든 요청을 순차 직렬화하여 동시 호출로 인한 차단을 방지한다.
   private requestChain: Promise<unknown> = Promise.resolve();
+
+  constructor(options: NaverlandServiceOptions = {}) {
+    this.proxyUrl = options.proxyUrl;
+  }
 
   // ---- 공개 API (툴에서 호출) ----
 
@@ -544,10 +556,16 @@ export class NaverlandService {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
     try {
-      const res = await fetch(MAIN_PAGE_URL, {
-        headers: { "User-Agent": USER_AGENT, "Accept-Language": "ko-KR,ko;q=0.9" },
-        signal: controller.signal,
-      });
+      const res = await fetch(
+        MAIN_PAGE_URL,
+        withProxy(
+          {
+            headers: { "User-Agent": USER_AGENT, "Accept-Language": "ko-KR,ko;q=0.9" },
+            signal: controller.signal,
+          },
+          this.proxyUrl,
+        ),
+      );
       const html = await res.text();
       const jwt = html.match(JWT_RE)?.[0];
       if (!jwt) {
@@ -580,17 +598,23 @@ export class NaverlandService {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
     try {
-      const res = await fetch(`${API_BASE_URL}${path}`, {
-        headers: {
-          "User-Agent": USER_AGENT,
-          Accept: "application/json, text/plain, */*",
-          "Accept-Language": "ko-KR,ko;q=0.9",
-          Referer: MAIN_PAGE_URL,
-          Authorization: `Bearer ${auth.jwt}`,
-          Cookie: auth.cookie,
-        },
-        signal: controller.signal,
-      });
+      const res = await fetch(
+        `${API_BASE_URL}${path}`,
+        withProxy(
+          {
+            headers: {
+              "User-Agent": USER_AGENT,
+              Accept: "application/json, text/plain, */*",
+              "Accept-Language": "ko-KR,ko;q=0.9",
+              Referer: MAIN_PAGE_URL,
+              Authorization: `Bearer ${auth.jwt}`,
+              Cookie: auth.cookie,
+            },
+            signal: controller.signal,
+          },
+          this.proxyUrl,
+        ),
+      );
 
       if (res.status === 429 || res.status === 401 || res.status === 403) {
         if (attempt < MAX_RETRIES) {

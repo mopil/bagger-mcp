@@ -43,7 +43,9 @@ export function createApp(config: AppConfig) {
     bithumbService: new BithumbService(),
     binanceService: new BinanceService(),
     coingeckoService: new CoingeckoService({ apiKey: config.coingeckoApiKey }),
-    dartService: new DartService({ apiKey: config.dartApiKey }),
+    dartService: new DartService({ apiKey: config.dartApiKey, proxyUrl: config.proxyUrl }),
+    // naverland는 프록시 미적용: 네이버가 데이터센터 IP(현 프록시는 AWS)를 차단해 오히려 막힌다.
+    // 거주지 IP로 직접 나갈 때만 동작. residential 프록시 확보 시 proxyUrl 주입하면 됨.
     naverlandService: new NaverlandService(),
     tossInvestService: new TossInvestService({
       clientId: config.tossClientId,

@@ -1,6 +1,8 @@
 import { promisify } from "node:util";
 import { inflateRaw } from "node:zlib";
 
+import { withProxy } from "../../http/proxy.js";
+
 import type {
   DartGetCompanyInput,
   DartGetFinancialsInput,
@@ -48,10 +50,13 @@ const TTL_FINANCIALS_MS = 6 * 60 * 60 * 1000;
 
 export interface DartServiceOptions {
   apiKey: string;
+  // 고정 IP egress 프록시 URL(선택). 해외 리전에서 OpenDART(한국 서버) 접근 안정화.
+  proxyUrl?: string;
 }
 
 export class DartService {
   private readonly apiKey: string;
+  private readonly proxyUrl?: string;
   private corpCache: CorpCodeCache | null = null;
   private corpLoadInFlight: Promise<CorpCodeCache> | null = null;
   private readonly cache = new Map<string, CacheEntry<unknown>>();
@@ -59,6 +64,7 @@ export class DartService {
 
   constructor(options: DartServiceOptions) {
     this.apiKey = options.apiKey;
+    this.proxyUrl = options.proxyUrl;
   }
 
   warmup(): void {
@@ -211,11 +217,17 @@ export class DartService {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), DART_REQUEST_TIMEOUT_MS);
     try {
-      const response = await fetch(url, {
-        method: "GET",
-        headers: { Accept: "application/json" },
-        signal: controller.signal,
-      });
+      const response = await fetch(
+        url,
+        withProxy(
+          {
+            method: "GET",
+            headers: { Accept: "application/json" },
+            signal: controller.signal,
+          },
+          this.proxyUrl,
+        ),
+      );
       if (!response.ok) {
         const body = await response.text().catch(() => "");
         throw new Error(
@@ -275,7 +287,10 @@ export class DartService {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), CORP_CODE_TIMEOUT_MS);
       try {
-        const response = await fetch(url, { method: "GET", signal: controller.signal });
+        const response = await fetch(
+          url,
+          withProxy({ method: "GET", signal: controller.signal }, this.proxyUrl),
+        );
         if (!response.ok) {
           throw new Error(`DART corpCode fetch failed: ${response.status} ${response.statusText}`);
         }
