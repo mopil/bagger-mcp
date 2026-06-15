@@ -48,6 +48,7 @@ export function createApp(config: AppConfig) {
     tossInvestService: new TossInvestService({
       clientId: config.tossClientId,
       clientSecret: config.tossClientSecret,
+      proxyUrl: config.proxyUrl,
     }),
   };
   services.dartService.warmup();

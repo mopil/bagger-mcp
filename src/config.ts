@@ -26,6 +26,8 @@ export interface AppConfig {
   dartApiKey: string;
   tossClientId?: string;
   tossClientSecret?: string;
+  // 외부 API egress 프록시 URL(공용). 고정 IP가 필요한 외부 호출에 사용.
+  proxyUrl?: string;
 }
 
 export function getConfig(): AppConfig {
@@ -53,5 +55,11 @@ export function getConfig(): AppConfig {
     dartApiKey: requireEnv("DART_API_KEY"),
     tossClientId: process.env.TOSS_INVEST_API_KEY?.trim() || undefined,
     tossClientSecret: process.env.TOSS_INVEST_SECRET_KEY?.trim() || undefined,
+    // 공용 egress 프록시(고정 IP 화이트리스트 대응). 전용 변수 우선, 표준 HTTPS/HTTP_PROXY로 폴백.
+    proxyUrl:
+      process.env.OUTBOUND_PROXY_URL?.trim() ||
+      process.env.HTTPS_PROXY?.trim() ||
+      process.env.HTTP_PROXY?.trim() ||
+      undefined,
   };
 }

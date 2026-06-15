@@ -1,3 +1,5 @@
+import { withProxy } from "../../http/proxy.js";
+
 import type {
   TossGetBuyableAmountInput,
   TossGetExchangeRateInput,
@@ -20,6 +22,8 @@ const MAX_WARNING_SYMBOLS = 20;
 export interface TossInvestServiceOptions {
   clientId?: string;
   clientSecret?: string;
+  // 고정 IP egress 프록시 URL. 예: http://user:pass@1.2.3.4:8888 (HTTP CONNECT 터널).
+  proxyUrl?: string;
 }
 
 interface TokenCache {
@@ -42,6 +46,7 @@ interface AccountsCache {
 export class TossInvestService {
   private readonly clientId?: string;
   private readonly clientSecret?: string;
+  private readonly proxyUrl?: string;
   private tokenCache: TokenCache | null = null;
   private tokenInFlight: Promise<string> | null = null;
   private accountsCache: AccountsCache | null = null;
@@ -50,6 +55,7 @@ export class TossInvestService {
   constructor(options: TossInvestServiceOptions) {
     this.clientId = options.clientId;
     this.clientSecret = options.clientSecret;
+    this.proxyUrl = options.proxyUrl;
   }
 
   async getPortfolio(input: TossGetPortfolioInput) {
@@ -188,16 +194,23 @@ export class TossInvestService {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
       try {
-        const response = await fetch(`${TOSS_BASE_URL}${path}`, {
-          method: "GET",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            Accept: "application/json",
-            ...extraHeaders,
-          },
-          signal: controller.signal,
-        });
-        if ((response.status === 401 || response.status === 403) && attempt === 0) {
+        const response = await fetch(
+          `${TOSS_BASE_URL}${path}`,
+          withProxy(
+            {
+              method: "GET",
+              headers: {
+                Authorization: `Bearer ${token}`,
+                Accept: "application/json",
+                ...extraHeaders,
+              },
+              signal: controller.signal,
+            },
+            this.proxyUrl,
+          ),
+        );
+        // 401(Unauthorized)만 토큰 만료로 보고 재발급·재시도. 403(Forbidden)은 권한 문제라 재시도 무의미.
+        if (response.status === 401 && attempt === 0) {
           this.tokenCache = null;
           continue;
         }
@@ -254,15 +267,21 @@ export class TossInvestService {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
     try {
-      const response = await fetch(`${TOSS_BASE_URL}/oauth2/token`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
-          Accept: "application/json",
-        },
-        body: body.toString(),
-        signal: controller.signal,
-      });
+      const response = await fetch(
+        `${TOSS_BASE_URL}/oauth2/token`,
+        withProxy(
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/x-www-form-urlencoded",
+              Accept: "application/json",
+            },
+            body: body.toString(),
+            signal: controller.signal,
+          },
+          this.proxyUrl,
+        ),
+      );
       if (!response.ok) {
         const errBody = await response.text().catch(() => "");
         throw new Error(
