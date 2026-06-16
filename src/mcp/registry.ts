@@ -9,6 +9,7 @@ import { dartTools } from "../tools/dart/tools.js";
 import { grokTools } from "../tools/grok/tools.js";
 import { krxTools } from "../tools/krx/tools.js";
 import { memoryTools } from "../tools/memory/tools.js";
+import { molitTools } from "../tools/molit/tools.js";
 import { naverlandTools } from "../tools/naverland/tools.js";
 import { telegramTools } from "../tools/telegram/tools.js";
 import { tossInvestTools } from "../tools/tossinvest/tools.js";
@@ -28,6 +29,7 @@ const registry = [
   ...dartTools,
   ...naverlandTools,
   ...tossInvestTools,
+  ...molitTools,
   ...memoryTools,
 ];
 

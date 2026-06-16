@@ -28,6 +28,8 @@ export interface AppConfig {
   tossClientSecret?: string;
   // 외부 API egress 프록시 URL(공용). 고정 IP가 필요한 외부 호출에 사용.
   proxyUrl?: string;
+  // 국토교통부 실거래가 (공공데이터포털 data.go.kr) 인증키.
+  molitApiKey?: string;
 }
 
 export function getConfig(): AppConfig {
@@ -61,5 +63,6 @@ export function getConfig(): AppConfig {
       process.env.HTTPS_PROXY?.trim() ||
       process.env.HTTP_PROXY?.trim() ||
       undefined,
+    molitApiKey: process.env.MOLIT_API_KEY?.trim() || undefined,
   };
 }

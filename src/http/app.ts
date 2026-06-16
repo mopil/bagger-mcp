@@ -15,6 +15,7 @@ import { DartService } from "../tools/dart/service.js";
 import { GrokService } from "../tools/grok/service.js";
 import { KrxService } from "../tools/krx/service.js";
 import { MemoryService } from "../tools/memory/service.js";
+import { MolitService } from "../tools/molit/service.js";
 import { NaverlandService } from "../tools/naverland/service.js";
 import { TelegramService } from "../tools/telegram/service.js";
 import { TossInvestService } from "../tools/tossinvest/service.js";
@@ -52,6 +53,7 @@ export function createApp(config: AppConfig) {
       clientSecret: config.tossClientSecret,
       proxyUrl: config.proxyUrl,
     }),
+    molitService: new MolitService({ apiKey: config.molitApiKey }),
   };
   services.dartService.warmup();
   const transports = new Map<string, ManagedTransport>();
