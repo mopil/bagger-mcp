@@ -13,7 +13,16 @@ import { z } from 'zod';
 //   - 허용값 밖의 값은 그대로 거부된다.
 const nullToUndefined = (value: unknown) => value ?? undefined;
 
-const optionalString = z.preprocess(nullToUndefined, z.string().min(1).optional());
+// 자유형식 문자열 필드용. LLM이 size=3, pnl=-7.4 처럼 숫자를 그대로 넣는 일이 잦아
+// (Claude Desktop에서 "Expected string, received number"로 거부됨), 숫자/불리언은
+// 문자열로 흡수한다. null/undefined는 undefined로.
+const toOptionalString = (value: unknown) => {
+  if (value === null || value === undefined) return undefined;
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  return value;
+};
+
+const optionalString = z.preprocess(toOptionalString, z.string().min(1).optional());
 
 const optionalEnum = <T extends [string, ...string[]]>(values: T) =>
   z.preprocess(nullToUndefined, z.enum(values).optional());
@@ -22,7 +31,7 @@ const optionalEnumArray = <T extends [string, ...string[]]>(values: T) =>
   z.preprocess(nullToUndefined, z.array(z.enum(values)).optional());
 
 const optionalStringArray = z.preprocess(
-  nullToUndefined,
+  (value) => (Array.isArray(value) ? value.map(toOptionalString) : nullToUndefined(value)),
   z.array(z.string().min(1)).optional(),
 );
 
@@ -87,7 +96,7 @@ export const decisionLogAppendInputSchema = {
     "상방 계획(익절 목표 / 논지 무효화 조건). EV의 위쪽 꼬리 (예: '$X(+30%)', '매출 가이던스 하향 시 청산'). enter에서 기록",
   ),
   memo: z
-    .preprocess(nullToUndefined, z.string().min(1).max(400).optional())
+    .preprocess(toOptionalString, z.string().min(1).max(400).optional())
     .describe('진입 메모 3줄 요약 (논거 / 손절 / 손절 시 반응)'),
   // --- 청산 라인 (trim/exit) ---
   exitReason: optionalEnum(['stop', 'target', 'time', 'thesis', 'discretionary']).describe(
