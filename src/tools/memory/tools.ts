@@ -11,8 +11,57 @@ import {
 const tool = defineServiceTool<ServiceRegistry>();
 
 const INBOX_PREFIX = "sources/_inbox/";
-const DECISION_LOG_PATH = "wiki/investing/lessons/decision-log.md";
+// Decision log is partitioned by month: wiki/logs/decisions/YYYY-MM.md.
+// The month is derived from the entry date (KST), and a fresh partition is
+// auto-created on the first append of a new month. Schema/field docs live in
+// wiki/logs/decisions/decisions-index.md.
+const DECISION_LOG_DIR = "wiki/logs/decisions";
 const DECISION_LOG_MARKER = "<!-- DECISION_LOG_INSERT_AFTER -->";
+
+function decisionLogPath(date: string): string {
+  // date is YYYY-MM-DD → partition file YYYY-MM.md
+  return `${DECISION_LOG_DIR}/${date.slice(0, 7)}.md`;
+}
+
+// Minimal lean template for a freshly-rolled monthly partition. Mirrors the
+// shape the desktop /ingest skill produces; schema docs are NOT duplicated here
+// (they live in decisions-index.md) to keep each partition light.
+function decisionLogMonthTemplate(date: string): string {
+  const ym = date.slice(0, 7);
+  const created = `${ym}-01`;
+  return `---
+type: journal
+created: ${created}
+updated: ${date}
+tags: [journal, decision-log, audit]
+month: ${ym}
+status: active
+---
+
+# Decision Log — ${ym}
+
+스키마·필드 정의·집행지표는 [[decisions-index]]. 이 파일은 **${ym} 결정 entry**만 담는 월별 파티션. 최신이 위로. \`decision_log_append\` 도구가 아래 마커 다음 줄에 append (수동 추가도 허용).
+
+## Entries
+
+${DECISION_LOG_MARKER}
+
+---
+
+## 집계 (사후 작성)
+
+- 총 entry: - / 마감 포지션(id): -
+- 결과: win - / loss - / flat - / tbd -
+- 진입 게이트 통과율: - (gate 평균 통과 수 ÷ 3)
+- 손절 집행률: - (exit=stop 중 executed=planned 비율)
+- EV per trade: - (마감 포지션 pnl 평균)
+- 가장 자주 호출된 원칙: -
+- 가장 자주 위반된 원칙: -
+- 메모:
+
+(매월 말 또는 lessons ingest 시 [[principles-reverse-index]] 재집계 + [[rule-calibration-protocol]] 4가드 검토)
+`;
+}
 
 interface DecisionLogFields {
   id?: string | null;
@@ -178,7 +227,7 @@ Capture criteria, structuring rules, ingest/lint procedures all live in the repo
   tool({
     name: "decision_log_append",
     description:
-      `Append one structured decision line to ${DECISION_LOG_PATH} in the memory-space repo. Cross-client, in-the-moment trade-decision capture — call right when an enter/addbuy/trim/exit decision is made. Read-modify-write, newest on top.
+      `Append one structured decision line to the month partition under ${DECISION_LOG_DIR}/ (YYYY-MM.md, derived from the entry date) in the memory-space repo. A new month's file is auto-created from a lean template on first append. Cross-client, in-the-moment trade-decision capture — call right when an enter/addbuy/trim/exit decision is made. Read-modify-write, newest on top.
 
 Captures execution telemetry for the "repeatable +EV system" goal. The three target metrics and what feeds them:
 - 진입 게이트 통과율 ← gate (which entry gates passed; empty = impulse — log it honestly).
@@ -193,17 +242,20 @@ date/time default to KST now; pass only to override. result defaults to tbd; set
     inputSchema: decisionLogAppendInputSchema,
     async run(args, { memoryService }) {
       const now = nowDateTimeKst();
-      const dateTime = `${args.date ?? now.date} ${args.time ?? now.time}`;
+      const date = args.date ?? now.date;
+      const dateTime = `${date} ${args.time ?? now.time}`;
       const line = buildDecisionLine(args, dateTime);
 
-      const file = await memoryService.read(DECISION_LOG_PATH);
-      const updated = insertDecisionEntry(file.content, line);
+      const path = decisionLogPath(date);
+      const file = await memoryService.readOrNull(path);
+      const base = file?.content ?? decisionLogMonthTemplate(date);
+      const updated = insertDecisionEntry(base, line);
 
       const resultTag = args.result && args.result !== "tbd" ? ` (${args.result})` : "";
       const idTag = args.id ? `${args.id} ` : "";
       const commitMessage = `decision-log: ${idTag}${args.ticker} ${args.action}${resultTag}`;
-      const result = await memoryService.write(DECISION_LOG_PATH, updated, commitMessage);
-      return { result, appended: line };
+      const result = await memoryService.write(path, updated, commitMessage);
+      return { result, appended: line, path };
     },
   }),
 ];

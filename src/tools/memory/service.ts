@@ -145,6 +145,20 @@ export class MemoryService {
     return promise;
   }
 
+  // Like read(), but returns null instead of throwing when the file does not
+  // exist (404). Used by callers that append to a path which may not exist yet
+  // (e.g. a freshly-rolled monthly decision-log partition).
+  async readOrNull(path: string): Promise<MemoryFile | null> {
+    try {
+      return await this.read(path);
+    } catch (error) {
+      if (error instanceof GithubApiError && error.status === 404) {
+        return null;
+      }
+      throw error;
+    }
+  }
+
   async write(
     path: string,
     content: string,
