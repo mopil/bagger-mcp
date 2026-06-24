@@ -65,7 +65,7 @@ ${DECISION_LOG_MARKER}
 
 interface DecisionLogFields {
   id?: string | null;
-  ticker: string;
+  ticker?: string | null;
   action: string;
   size?: string | null;
   trigger?: string | null;
@@ -78,6 +78,7 @@ interface DecisionLogFields {
   result?: string | null;
   principles?: string[] | null;
   memo?: string | null;
+  reviewType?: string | null;
 }
 
 const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
@@ -94,7 +95,22 @@ function cleanField(value: string): string {
   return value.replace(/\s+/g, " ").trim();
 }
 
+function buildReviewLine(args: DecisionLogFields, dateTime: string): string {
+  const fields: string[] = [];
+  if (args.reviewType) fields.push(`type=${args.reviewType}`);
+  if (args.principles && args.principles.length > 0) {
+    fields.push(`principles=[${args.principles.join(",")}]`);
+  }
+  if (args.memo) fields.push(`memo=${JSON.stringify(cleanField(args.memo))}`);
+
+  const id = args.id ? ` [${cleanField(args.id)}]` : "";
+  const ticker = args.ticker ? ` ${cleanField(args.ticker)}` : "";
+  return `- ${dateTime}${id} review${ticker} | ${fields.join(" | ")}`;
+}
+
 function buildDecisionLine(args: DecisionLogFields, dateTime: string): string {
+  if (args.action === "review") return buildReviewLine(args, dateTime);
+
   const fields: string[] = [];
   if (args.trigger) fields.push(`trigger=${args.trigger}`);
   if (args.gate && args.gate.length > 0) fields.push(`gate=${args.gate.join("+")}`);
@@ -111,7 +127,7 @@ function buildDecisionLine(args: DecisionLogFields, dateTime: string): string {
 
   const size = args.size ? ` ${cleanField(args.size)}` : "";
   const id = args.id ? ` [${cleanField(args.id)}]` : "";
-  const head = `- ${dateTime}${id} ${cleanField(args.ticker)} ${args.action}${size}`;
+  const head = `- ${dateTime}${id} ${cleanField(args.ticker ?? "")} ${args.action}${size}`;
   return `${head} | ${fields.join(" | ")}`;
 }
 
@@ -237,10 +253,19 @@ Captures execution telemetry for the "repeatable +EV system" goal. The three tar
 Field subsets by action (only send what applies — keeps each call light):
 - enter/addbuy: id, ticker, action, size, trigger, gate, stop, target, memo
 - trim/exit: id, ticker, action, size, exitReason, executed, pnl, result
+- review (회고): action, memo (필수), reviewType, optionally ticker/id/principles — 휩쏘·판단복기 등 사후 메모. 매매 필드는 무시됨.
 
 date/time default to KST now; pass only to override. result defaults to tbd; set win/loss/flat on the exit line. Aggregation into metrics is a desktop skill, not a tool.`,
     inputSchema: decisionLogAppendInputSchema,
     async run(args, { memoryService }) {
+      if (args.action === "review") {
+        if (!args.memo) {
+          throw new Error("review(회고) 라인은 memo가 필수입니다.");
+        }
+      } else if (!args.ticker) {
+        throw new Error(`${args.action} 라인은 ticker가 필수입니다.`);
+      }
+
       const now = nowDateTimeKst();
       const date = args.date ?? now.date;
       const dateTime = `${date} ${args.time ?? now.time}`;
@@ -253,7 +278,10 @@ date/time default to KST now; pass only to override. result defaults to tbd; set
 
       const resultTag = args.result && args.result !== "tbd" ? ` (${args.result})` : "";
       const idTag = args.id ? `${args.id} ` : "";
-      const commitMessage = `decision-log: ${idTag}${args.ticker} ${args.action}${resultTag}`;
+      const commitMessage =
+        args.action === "review"
+          ? `decision-log: 회고${args.reviewType ? ` ${args.reviewType}` : ""}${args.ticker ? ` ${args.ticker}` : ""}`
+          : `decision-log: ${idTag}${args.ticker} ${args.action}${resultTag}`;
       const result = await memoryService.write(path, updated, commitMessage);
       return { result, appended: line, path };
     },

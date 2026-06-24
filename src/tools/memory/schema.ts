@@ -77,10 +77,14 @@ export const decisionLogAppendInputSchema = {
   id: optionalString.describe(
     '포지션 식별자. 같은 포지션의 enter→addbuy→trim→exit를 동일 id로 묶어 EV·승률·보유기간을 집계. 재진입 시 번호 증가 (예: TSLA-1, TSLA-2). enter에서 부여하고 이후 동일하게 재사용',
   ),
-  ticker: z.string().min(1).max(40).describe('종목/심볼 (예: TSLA, 005930, BTC)'),
+  ticker: z
+    .preprocess(toOptionalString, z.string().min(1).max(40).optional())
+    .describe('종목/심볼 (예: TSLA, 005930, BTC). 매매 라인(enter/addbuy/trim/exit)은 필수, review(회고)는 생략 가능'),
   action: z
-    .enum(['enter', 'addbuy', 'trim', 'exit'])
-    .describe('매매 행동: enter 신규진입 / addbuy 추가매수(비중↑) / trim 일부청산(비중↓) / exit 전량청산'),
+    .enum(['enter', 'addbuy', 'trim', 'exit', 'review'])
+    .describe(
+      '행동: enter 신규진입 / addbuy 추가매수(비중↑) / trim 일부청산(비중↓) / exit 전량청산 / review 회고(휩쏘·판단복기 등 사후 메모. memo만 필수, 나머지 전부 생략 가능)',
+    ),
   size: optionalString.describe("이번 결정의 규모, 자유형식 (예: '3%', '50만', '1/3')"),
   // --- 진입 라인 (enter/addbuy) ---
   trigger: optionalEnum(['event', 'chart', 'news']).describe(
@@ -97,7 +101,18 @@ export const decisionLogAppendInputSchema = {
   ),
   memo: z
     .preprocess(toOptionalString, z.string().min(1).max(400).optional())
-    .describe('진입 메모 3줄 요약 (논거 / 손절 / 손절 시 반응)'),
+    .describe('메모. 진입 라인=3줄 요약(논거/손절/손절 시 반응). review(회고) 라인=회고 본문(필수)'),
+  // --- 회고 라인 (review) ---
+  reviewType: optionalEnum([
+    'whipsaw',
+    'thesis_right',
+    'thesis_wrong',
+    'missed',
+    'overtrade',
+    'discipline',
+  ]).describe(
+    '회고 분류 (action=review에서만): whipsaw 휩쏘(손절 직후 반등에 털림) / thesis_right 판단적중 / thesis_wrong 판단오류 / missed 기회상실(진입 못/안 함) / overtrade 과매매 / discipline 규율 준수·위반 복기',
+  ),
   // --- 청산 라인 (trim/exit) ---
   exitReason: optionalEnum(['stop', 'target', 'time', 'thesis', 'discretionary']).describe(
     '청산 사유: stop 손절선도달 / target 익절목표도달 / time 시간손절 / thesis 논지무효화 / discretionary 재량. executed와 직교 — 손절 집행률 = exitReason=stop 케이스 중 executed=planned 비율',
