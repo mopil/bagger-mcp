@@ -22,7 +22,38 @@ const toOptionalString = (value: unknown) => {
   return value;
 };
 
-const optionalString = z.preprocess(toOptionalString, z.string().min(1).optional());
+// "빈값을 뜻하는 문자열"을 실제 값으로 오인하지 않게 거부한다.
+// 증상: LLM이 값이 없을 때 필드를 생략하지 않고 "null"/"N/A"/"-" 같은 placeholder
+// 문자열을 넣어, 로그에 pnl=null 처럼 가짜 값이 박히거나(또는 조용히 무시되어)
+// 정정 라인으로 땜질하게 된다. 조용히 흘리는 대신 명확한 에러로 즉시 재시도를 유도.
+const NULL_LIKE = new Set([
+  'null',
+  'undefined',
+  'undef',
+  'none',
+  'nil',
+  'nan',
+  'n/a',
+  'na',
+  '-',
+  '—',
+  '없음',
+]);
+const looksNullLike = (value: string) => NULL_LIKE.has(value.trim().toLowerCase());
+const NULL_LIKE_MSG =
+  '"null"·"N/A"·"none"·"-" 같은 빈값 표시 문자열은 값이 아닙니다. 실제 값이 있으면 그 값을, 없으면 이 필드를 아예 생략하세요 (빈 문자열·"null" 금지).';
+
+// 자유형식 문자열: 숫자/불리언 흡수 + 빈값 placeholder 거부.
+const freeformString = (max?: number) => {
+  let base = z.string().min(1);
+  if (max !== undefined) base = base.max(max);
+  return z.preprocess(
+    toOptionalString,
+    base.refine((v) => !looksNullLike(v), NULL_LIKE_MSG).optional(),
+  );
+};
+
+const optionalString = freeformString();
 
 const optionalEnum = <T extends [string, ...string[]]>(values: T) =>
   z.preprocess(nullToUndefined, z.enum(values).optional());
@@ -31,7 +62,12 @@ const optionalEnumArray = <T extends [string, ...string[]]>(values: T) =>
   z.preprocess(nullToUndefined, z.array(z.enum(values)).optional());
 
 const optionalStringArray = z.preprocess(
-  (value) => (Array.isArray(value) ? value.map(toOptionalString) : nullToUndefined(value)),
+  (value) =>
+    Array.isArray(value)
+      ? value
+          .map(toOptionalString)
+          .filter((v): v is string => typeof v === 'string' && !looksNullLike(v))
+      : nullToUndefined(value),
   z.array(z.string().min(1)).optional(),
 );
 
@@ -77,9 +113,9 @@ export const decisionLogAppendInputSchema = {
   id: optionalString.describe(
     '포지션 식별자. 같은 포지션의 enter→addbuy→trim→exit를 동일 id로 묶어 EV·승률·보유기간을 집계. 재진입 시 번호 증가 (예: TSLA-1, TSLA-2). enter에서 부여하고 이후 동일하게 재사용',
   ),
-  ticker: z
-    .preprocess(toOptionalString, z.string().min(1).max(40).optional())
-    .describe('종목/심볼 (예: TSLA, 005930, BTC). 매매 라인(enter/addbuy/trim/exit)은 필수, review(회고)는 생략 가능'),
+  ticker: freeformString(40).describe(
+    '종목/심볼 (예: TSLA, 005930, BTC). 매매 라인(enter/addbuy/trim/exit)은 필수, review(회고)는 생략 가능',
+  ),
   action: z
     .enum(['enter', 'addbuy', 'trim', 'exit', 'review'])
     .describe(
@@ -99,9 +135,9 @@ export const decisionLogAppendInputSchema = {
   target: optionalString.describe(
     "상방 계획(익절 목표 / 논지 무효화 조건). EV의 위쪽 꼬리 (예: '$X(+30%)', '매출 가이던스 하향 시 청산'). enter에서 기록",
   ),
-  memo: z
-    .preprocess(toOptionalString, z.string().min(1).max(400).optional())
-    .describe('메모. 진입 라인=3줄 요약(논거/손절/손절 시 반응). review(회고) 라인=회고 본문(필수)'),
+  memo: freeformString(400).describe(
+    '메모. 진입 라인=3줄 요약(논거/손절/손절 시 반응). review(회고) 라인=회고 본문(필수)',
+  ),
   // --- 회고 라인 (review) ---
   reviewType: optionalEnum([
     'whipsaw',
@@ -138,4 +174,22 @@ export const decisionLogAppendInputSchema = {
         .optional(),
     )
     .describe('기본값 KST 현재 시각. 덮어쓸 때만 전달'),
+} satisfies z.ZodRawShape;
+
+// 기존 라인을 교정된 필드로 재구성해 교체한다(포맷 보장). find로 대상 라인을 특정하고,
+// 교정된 전체 필드(append와 동일)를 다시 넣는다. 원본 타임스탬프는 보존되므로 date/time은
+// 어느 월 파일(파티션)을 열지 고를 때만 쓰인다.
+export const decisionLogAmendInputSchema = {
+  find: z
+    .string()
+    .min(1)
+    .describe(
+      '수정할 기존 라인을 찾는 고유 부분문자열. 해당 월 파일 안에서 정확히 1개 라인에만 매칭돼야 함 (예: "TSLA-1 TSLA exit" 또는 타임스탬프 "2026-06-24 14:30"). 모호하면 더 길게 적으세요.',
+    ),
+  reason: z
+    .string()
+    .min(1)
+    .max(200)
+    .describe('수정 사유 (별도 감사 로그에 기록됨). 예: "pnl 누락 보정", "result tbd→loss"'),
+  ...decisionLogAppendInputSchema,
 } satisfies z.ZodRawShape;

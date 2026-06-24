@@ -1,6 +1,7 @@
 import type { ServiceRegistry } from "../../mcp/services.js";
 import { defineServiceTool } from "../defineTool.js";
 import {
+  decisionLogAmendInputSchema,
   decisionLogAppendInputSchema,
   memoryCaptureInputSchema,
   memoryListInputSchema,
@@ -108,6 +109,50 @@ function buildReviewLine(args: DecisionLogFields, dateTime: string): string {
   return `- ${dateTime}${id} review${ticker} | ${fields.join(" | ")}`;
 }
 
+// review는 memo, 매매 라인은 ticker가 반드시 있어야 한다. 누락 시 명확한 에러.
+function assertRequiredFields(args: DecisionLogFields): void {
+  if (args.action === "review") {
+    if (!args.memo) throw new Error("review(회고) 라인은 memo가 필수입니다.");
+  } else if (!args.ticker) {
+    throw new Error(`${args.action} 라인은 ticker가 필수입니다.`);
+  }
+}
+
+// 기존 라인 맨 앞 "- YYYY-MM-DD HH:MM" 타임스탬프를 추출 (amend 시 원본 시각 보존용).
+function extractTimestamp(line: string): string | null {
+  const m = line.match(/^-\s+(\d{4}-\d{2}-\d{2} \d{2}:\d{2})\b/);
+  return m ? m[1] : null;
+}
+
+// 액션별로 채워졌어야 할 핵심 필드가 비어 있으면 경고를 모은다.
+// 차단(throw) 대신 응답에 실어, 모델이 정정 라인 땜질 대신 처음부터 보강하도록 유도한다.
+function decisionWarnings(args: DecisionLogFields): string[] {
+  const warnings: string[] = [];
+  if (args.action === "review") return warnings;
+
+  if (!args.id) {
+    warnings.push(
+      "id가 없습니다 — 포지션의 enter→exit를 묶어 EV·승률을 집계하려면 id 필수. enter에서 부여하고(예: TSLA-1) 같은 포지션에서 재사용하세요.",
+    );
+  }
+  if (args.action === "enter" || args.action === "addbuy") {
+    if (!args.stop) {
+      warnings.push("진입 라인에 stop(손절선)이 없습니다 — 손절 계획이 정말 없다면 무시, 아니면 stop을 넣으세요.");
+    }
+  } else if (args.action === "trim" || args.action === "exit") {
+    if (!args.pnl) {
+      warnings.push("청산 라인에 pnl(실현 손익)이 없습니다 — 정정 라인 만들지 말고 지금 pnl을 채워 다시 호출하세요.");
+    }
+    if (!args.result || args.result === "tbd") {
+      warnings.push("청산 라인인데 result가 tbd입니다 — win/loss/flat 중 하나로 설정하세요.");
+    }
+    if (args.action === "exit" && !args.exitReason) {
+      warnings.push("exit 라인에 exitReason이 없습니다 — stop/target/time/thesis/discretionary 중 하나를 넣어야 손절 집행률을 잴 수 있습니다.");
+    }
+  }
+  return warnings;
+}
+
 function buildDecisionLine(args: DecisionLogFields, dateTime: string): string {
   if (args.action === "review") return buildReviewLine(args, dateTime);
 
@@ -133,7 +178,8 @@ function buildDecisionLine(args: DecisionLogFields, dateTime: string): string {
 
 function insertDecisionEntry(content: string, line: string): string {
   if (content.includes(DECISION_LOG_MARKER)) {
-    return content.replace(DECISION_LOG_MARKER, `${DECISION_LOG_MARKER}\n${line}`);
+    // 함수형 replacement: line에 $&·$$ 등 특수 패턴이 있어도 그대로 삽입.
+    return content.replace(DECISION_LOG_MARKER, () => `${DECISION_LOG_MARKER}\n${line}`);
   }
   const idx = content.indexOf("## Entries");
   if (idx !== -1) {
@@ -255,16 +301,12 @@ Field subsets by action (only send what applies — keeps each call light):
 - trim/exit: id, ticker, action, size, exitReason, executed, pnl, result
 - review (회고): action, memo (필수), reviewType, optionally ticker/id/principles — 휩쏘·판단복기 등 사후 메모. 매매 필드는 무시됨.
 
-date/time default to KST now; pass only to override. result defaults to tbd; set win/loss/flat on the exit line. Aggregation into metrics is a desktop skill, not a tool.`,
+date/time default to KST now; pass only to override. result defaults to tbd; set win/loss/flat on the exit line. Aggregation into metrics is a desktop skill, not a tool.
+
+값 입력 규칙(자주 틀리는 부분): 값이 없는 필드는 보내지 말고 생략하세요. "null"·"N/A"·"none"·"-" 같은 빈값 표시 문자열은 거부됩니다(에러). pnl·stop·size 같은 자유형식 필드는 실제 값을 그대로 넣고(숫자도 가능), trim/exit 라인은 pnl·result·exitReason을 처음부터 채우세요 — 빠뜨린 뒤 정정 라인으로 땜질하지 마세요. 응답의 warnings 배열에 누락 항목이 표시되면 그 라인을 decision_log_amend로 고치세요.`,
     inputSchema: decisionLogAppendInputSchema,
     async run(args, { memoryService }) {
-      if (args.action === "review") {
-        if (!args.memo) {
-          throw new Error("review(회고) 라인은 memo가 필수입니다.");
-        }
-      } else if (!args.ticker) {
-        throw new Error(`${args.action} 라인은 ticker가 필수입니다.`);
-      }
+      assertRequiredFields(args);
 
       const now = nowDateTimeKst();
       const date = args.date ?? now.date;
@@ -283,7 +325,64 @@ date/time default to KST now; pass only to override. result defaults to tbd; set
           ? `decision-log: 회고${args.reviewType ? ` ${args.reviewType}` : ""}${args.ticker ? ` ${args.ticker}` : ""}`
           : `decision-log: ${idTag}${args.ticker} ${args.action}${resultTag}`;
       const result = await memoryService.write(path, updated, commitMessage);
-      return { result, appended: line, path };
+      const warnings = decisionWarnings(args);
+      return { result, appended: line, path, warnings };
+    },
+  }),
+  tool({
+    name: "decision_log_amend",
+    description:
+      `Correct an existing decision line in the month partition under ${DECISION_LOG_DIR}/ and leave a separate audit entry. Use this instead of appending ad-hoc "정정 라인" when a previously logged line had a wrong/missing field (e.g. forgot pnl, result tbd→loss, "null" was written by mistake).
+
+How it works:
+- find: a unique substring that locates the target line in that month's file (must match exactly one entry line; if 0 or 2+, it errors — make find more specific).
+- Then resend the FULL corrected fields (same fields as decision_log_append) — the line is rebuilt from them so formatting stays consistent. The original timestamp is preserved automatically; date/time are only used to pick the month partition.
+- An audit line ('✎ amend | reason=... | before=... | after=...') is inserted at the top of the same file, so every correction is traceable in-log (git history also records it).
+
+date selects the partition (entry's month); default = current month. reason is required and goes into the audit line.`,
+    inputSchema: decisionLogAmendInputSchema,
+    async run(args, { memoryService }) {
+      assertRequiredFields(args);
+
+      const now = nowDateTimeKst();
+      const partitionDate = args.date ?? now.date;
+      const path = decisionLogPath(partitionDate);
+
+      const file = await memoryService.readOrNull(path);
+      if (!file) {
+        throw new Error(
+          `대상 월 로그 파일이 없습니다: ${path}. date를 수정 대상 entry의 날짜(YYYY-MM-DD)로 지정하세요.`,
+        );
+      }
+
+      const lines = file.content.split("\n");
+      const matches = lines.filter(
+        (l) => l.trimStart().startsWith("- ") && l.includes(args.find),
+      );
+      if (matches.length === 0) {
+        throw new Error(`"${args.find}"에 매칭되는 라인이 ${path}에 없습니다. find를 확인하세요.`);
+      }
+      if (matches.length > 1) {
+        throw new Error(
+          `"${args.find}"가 ${matches.length}개 라인에 매칭됩니다. find를 더 구체적으로 적어 1개만 매칭되게 하세요.`,
+        );
+      }
+
+      const before = matches[0];
+      const dateTime = extractTimestamp(before) ?? `${partitionDate} ${args.time ?? now.time}`;
+      const after = buildDecisionLine(args, dateTime);
+
+      const auditTime = `${now.date} ${now.time}`;
+      const auditLine = `- ${auditTime} ✎ amend | reason=${JSON.stringify(cleanField(args.reason))} | before=${JSON.stringify(before.trim())} | after=${JSON.stringify(after)}`;
+
+      // 함수형 replacement: after에 $&·$$ 등 특수 패턴이 있어도 그대로 치환.
+      const replaced = file.content.replace(before, () => after);
+      const updated = insertDecisionEntry(replaced, auditLine);
+
+      const commitMessage = `decision-log(amend): ${cleanField(args.reason)}`;
+      const result = await memoryService.write(path, updated, commitMessage);
+      const warnings = decisionWarnings(args);
+      return { result, path, before: before.trim(), after, audit: auditLine, warnings };
     },
   }),
 ];
