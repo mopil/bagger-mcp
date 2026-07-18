@@ -54,7 +54,7 @@ ${DECISION_LOG_MARKER}
 - 총 entry: - / 마감 포지션(id): -
 - 결과: win - / loss - / flat - / tbd -
 - 진입 게이트 통과율: - (gate 평균 통과 수 ÷ 3)
-- 손절 집행률: - (exit=stop 중 executed=planned 비율)
+- 손절 집행률: - (exit=stop 중 executed∈{planned, changed-residual} 비율)
 - EV per trade: - (마감 포지션 pnl 평균)
 - 가장 자주 호출된 원칙: -
 - 가장 자주 위반된 원칙: -
@@ -139,6 +139,11 @@ function decisionWarnings(args: DecisionLogFields): string[] {
     if (!args.stop) {
       warnings.push("진입 라인에 stop(손절선)이 없습니다 — 손절 계획이 정말 없다면 무시, 아니면 stop을 넣으세요.");
     }
+    if (args.action === "addbuy" && (!args.gate || args.gate.length === 0)) {
+      warnings.push(
+        "addbuy(추매)에 gate가 없습니다 — 추세상단 재량추매는 '비중확대 자리 손실' 메타패턴의 주원인입니다. 통과 게이트를 넣거나, 정말 재량이면 빈 채로 두되 그 사실을 자각하세요.",
+      );
+    }
   } else if (args.action === "trim" || args.action === "exit") {
     if (!args.pnl) {
       warnings.push("청산 라인에 pnl(실현 손익)이 없습니다 — 정정 라인 만들지 말고 지금 pnl을 채워 다시 호출하세요.");
@@ -148,6 +153,11 @@ function decisionWarnings(args: DecisionLogFields): string[] {
     }
     if (args.action === "exit" && !args.exitReason) {
       warnings.push("exit 라인에 exitReason이 없습니다 — stop/target/time/thesis/discretionary 중 하나를 넣어야 손절 집행률을 잴 수 있습니다.");
+    }
+    if (args.exitReason === "stop" && !args.executed) {
+      warnings.push(
+        "exit=stop인데 executed가 없습니다 — planned/changed-residual/changed-violation/skipped 중 하나로 집행 방식을 기록해야 손절 집행률이 잡힙니다.",
+      );
     }
   }
   return warnings;
@@ -293,7 +303,7 @@ Capture criteria, structuring rules, ingest/lint procedures all live in the repo
 
 Captures execution telemetry for the "repeatable +EV system" goal. The three target metrics and what feeds them:
 - 진입 게이트 통과율 ← gate (which entry gates passed; empty = impulse — log it honestly).
-- 손절 집행률 (the key weakness metric) ← exitReason=stop 케이스 중 executed=planned 비율. exitReason(why) and executed(how) are orthogonal — fill both on exits.
+- 손절 집행률 (the key weakness metric) ← exitReason=stop 케이스 중 executed가 planned 또는 changed-residual(방향 집행)인 비율. changed-violation·skipped는 미집행. exitReason(why) and executed(how) are orthogonal — fill both on exits.
 - EV per trade / 승률 / 보유기간 ← REQUIRES id to pair a position's enter→addbuy→trim→exit. Always set id (e.g. TSLA-1) starting on enter and reuse it for that position. Without id the lifecycle can't be reconstructed.
 
 Field subsets by action (only send what applies — keeps each call light):

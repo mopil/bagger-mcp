@@ -127,7 +127,7 @@ export const decisionLogAppendInputSchema = {
     '정보 출처: event 실적·공시 / chart 기술적신호 / news 뉴스. 규율 여부는 gate로 측정',
   ),
   gate: optionalEnumArray(['memo3', 'chart', 'funda']).describe(
-    '진입 시 통과한 게이트만 나열 (memo3 3줄메모 / chart 차트확인 / funda 펀더확인) → 진입 게이트 통과율. 빈 배열=무게이트(충동진입, 정직하게 기록). enter/addbuy에서만',
+    '통과한 게이트만 나열 (memo3 3줄메모 / chart 차트확인 / funda 펀더확인) → 진입 게이트 통과율. enter/addbuy 모두 대상 — 특히 addbuy(추매)는 추세상단 재량추매가 "비중확대 자리 손실" 메타패턴의 주원인이므로 게이트를 반드시 재검. 빈 배열=무게이트(충동/재량, 정직하게 기록)',
   ),
   stop: optionalString.describe(
     "하방 계획(손절선). 가격손절+시간손절 함께 표기 가능 (예: '$X(-8%) | 6w', '-7%')",
@@ -153,8 +153,13 @@ export const decisionLogAppendInputSchema = {
   exitReason: optionalEnum(['stop', 'target', 'time', 'thesis', 'discretionary']).describe(
     '청산 사유: stop 손절선도달 / target 익절목표도달 / time 시간손절 / thesis 논지무효화 / discretionary 재량. executed와 직교 — 손절 집행률 = exitReason=stop 케이스 중 executed=planned 비율',
   ),
-  executed: optionalEnum(['planned', 'changed', 'skipped']).describe(
-    '사전 계획 대비 집행 방식: planned 계획대로 / changed 재량변경 / skipped 미집행 → 집행 규율 지표. exitReason과 짝으로 손절 집행률 계산',
+  executed: optionalEnum([
+    'planned',
+    'changed-residual',
+    'changed-violation',
+    'skipped',
+  ]).describe(
+    '사전 계획 대비 집행 방식. planned 계획대로 집행 / changed-residual 손절선 닿아 방향은 집행했고 잔량·시점만 재량(→집행으로 카운트) / changed-violation 룰을 어긴 재량(반집행·손절 무시·종가룰 이탈 등, →미집행으로 카운트) / skipped 미집행. exitReason=stop과 짝으로 손절 집행률 계산 — planned+changed-residual=집행, changed-violation+skipped=미집행. (구 changed는 두 종류를 뭉개 지표를 오염시켜 분리)',
   ),
   pnl: optionalString.describe("청산 시 실현 손익 (예: '-7.4%', '+76.7만')"),
   result: optionalEnum(['tbd', 'win', 'loss', 'flat']).describe(
