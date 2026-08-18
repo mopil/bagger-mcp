@@ -248,7 +248,7 @@ export const memoryTools = [
   tool({
     name: "memory_read",
     description:
-      "Read a single file from the memory-space GitHub repo and return its UTF-8 content plus sha.",
+      "Read a single file from the memory-space GitHub repo and return its UTF-8 content plus sha. Start with wiki/routing.md (small) when you need to find where a topic lives — it maps topics to pages. Some pages run to tens of KB, so pick targets from routing.md or memory_search snippets rather than reading large files speculatively.",
     inputSchema: memoryReadInputSchema,
     async run(args, { memoryService }) {
       const file = await memoryService.read(args.path);
@@ -258,7 +258,13 @@ export const memoryTools = [
   tool({
     name: "memory_search",
     description:
-      "Full-text search across the memory-space GitHub repo via GitHub Code Search API. Optional extension and path qualifiers narrow the scope. Note: GitHub Code Search only indexes the default branch; newly pushed files take a short while to become searchable.",
+      `Search the user's long-term investing memory (mopil/memory-space) — their own principles, theses, past decisions, and logged mistakes.
+
+CALL THIS BEFORE ANSWERING when the user asks about a ticker, sector, macro read, entry/exit/sizing, or "what do you think about X". They have written on it before; answering from general knowledge while their own prior reasoning sits unread is the failure mode this tool exists to prevent. Cheap to call, so bias toward calling it.
+
+Backed by GitHub Code Search: LEXICAL matching, not semantic, and weak on Korean tokenization. A single query missing does NOT mean nothing is stored. Retry with the ticker, the English term, the Korean term, and the concept name (e.g. "HBM" / "메모리" / "memory-cycle"), and try the frontmatter aliases line, which carries KR/EN synonyms and tickers for this purpose. If several queries still miss, memory_read wiki/routing.md and follow the map before concluding the memory is silent.
+
+Narrow with the path qualifier — wiki/investing/principles (judgment rules), wiki/investing/theses (market reads), wiki/investing/lessons (postmortems), wiki/logs/decisions (executed trades). Prefer wiki/ over sources/, which is raw and noisy. Note: only the default branch is indexed, and newly pushed files take a short while to become searchable.`,
     inputSchema: memorySearchInputSchema,
     async run(args, { memoryService }) {
       const result = await memoryService.search(args.query, {
