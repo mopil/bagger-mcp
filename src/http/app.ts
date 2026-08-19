@@ -62,7 +62,7 @@ export function createApp(config: AppConfig) {
   const app = express();
   app.set("trust proxy", true);
   app.use(express.json({ limit: "1mb" }));
-  app.use(requestLoggingMiddleware);
+  app.use(createRequestLoggingMiddleware(config.pathSecret));
 
   app.get("/health", (_req: Request, res: Response) => {
     res.status(200).json({ ok: true });
@@ -122,27 +122,35 @@ export function createApp(config: AppConfig) {
   return app;
 }
 
-function requestLoggingMiddleware(req: Request, res: Response, next: NextFunction): void {
-  const requestId = req.header("x-request-id") ?? randomUUID();
-  const sessionId = req.header("mcp-session-id");
-  const start = Date.now();
+// 인증이 경로 시크릿(/mcp/<MCP_PATH_SECRET>) 방식이라 req.path를 그대로 로깅하면
+// 시크릿이 로그에 평문으로 남는다(= 로그 열람 권한이 곧 서버 접근 권한). 반드시 마스킹한다.
+function maskPath(path: string, pathSecret: string): string {
+  return pathSecret ? path.split(pathSecret).join("***") : path;
+}
 
-  res.setHeader("x-request-id", requestId);
+function createRequestLoggingMiddleware(pathSecret: string) {
+  return function requestLoggingMiddleware(req: Request, res: Response, next: NextFunction): void {
+    const requestId = req.header("x-request-id") ?? randomUUID();
+    const sessionId = req.header("mcp-session-id");
+    const start = Date.now();
 
-  res.on("finish", () => {
-    const durationMs = Date.now() - start;
-    const level = res.statusCode >= 500 ? "warn" : "info";
-    logger[level]("http.request", {
-      requestId,
-      sessionId,
-      method: req.method,
-      path: req.path,
-      status: res.statusCode,
-      durationMs,
+    res.setHeader("x-request-id", requestId);
+
+    res.on("finish", () => {
+      const durationMs = Date.now() - start;
+      const level = res.statusCode >= 500 ? "warn" : "info";
+      logger[level]("http.request", {
+        requestId,
+        sessionId,
+        method: req.method,
+        path: maskPath(req.path, pathSecret),
+        status: res.statusCode,
+        durationMs,
+      });
     });
-  });
 
-  next();
+    next();
+  };
 }
 
 function requireSessionTransport(

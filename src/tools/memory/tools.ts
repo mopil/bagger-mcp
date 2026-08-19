@@ -305,21 +305,16 @@ Capture criteria, structuring rules, ingest/lint procedures all live in the repo
   tool({
     name: "decision_log_append",
     description:
-      `Append one structured decision line to the month partition under ${DECISION_LOG_DIR}/ (YYYY-MM.md, derived from the entry date) in the memory-space repo. A new month's file is auto-created from a lean template on first append. Cross-client, in-the-moment trade-decision capture — call right when an enter/addbuy/trim/exit decision is made. Read-modify-write, newest on top.
+      `Append one trade-decision line to the month partition under ${DECISION_LOG_DIR}/ (YYYY-MM.md, from the entry date; auto-created on first append). Call at the moment an enter/addbuy/trim/exit decision is made. Newest on top.
 
-Captures execution telemetry for the "repeatable +EV system" goal. The three target metrics and what feeds them:
-- 진입 게이트 통과율 ← gate (which entry gates passed; empty = impulse — log it honestly).
-- 손절 집행률 (the key weakness metric) ← exitReason=stop 케이스 중 executed가 planned 또는 changed-residual(방향 집행)인 비율. changed-violation·skipped는 미집행. exitReason(why) and executed(how) are orthogonal — fill both on exits.
-- EV per trade / 승률 / 보유기간 ← REQUIRES id to pair a position's enter→addbuy→trim→exit. Always set id (e.g. TSLA-1) starting on enter and reuse it for that position. Without id the lifecycle can't be reconstructed.
+Always set id (e.g. TSLA-1) on enter and reuse it for that position — EV/win-rate/holding-period aggregation pairs enter→exit by id.
 
-Field subsets by action (only send what applies — keeps each call light):
+Fields by action (send only what applies):
 - enter/addbuy: id, ticker, action, size, trigger, gate, stop, target, memo
 - trim/exit: id, ticker, action, size, exitReason, executed, pnl, result
-- review (회고): action, memo (필수), reviewType, optionally ticker/id/principles — 휩쏘·판단복기 등 사후 메모. 매매 필드는 무시됨.
+- review (회고): action, memo (required), reviewType — trade fields are ignored.
 
-date/time default to KST now; pass only to override. result defaults to tbd; set win/loss/flat on the exit line. Aggregation into metrics is a desktop skill, not a tool.
-
-값 입력 규칙(자주 틀리는 부분): 값이 없는 필드는 보내지 말고 생략하세요. "null"·"N/A"·"none"·"-" 같은 빈값 표시 문자열은 거부됩니다(에러). pnl·stop·size 같은 자유형식 필드는 실제 값을 그대로 넣고(숫자도 가능), trim/exit 라인은 pnl·result·exitReason을 처음부터 채우세요 — 빠뜨린 뒤 정정 라인으로 땜질하지 마세요. 응답의 warnings 배열에 누락 항목이 표시되면 그 라인을 decision_log_amend로 고치세요.`,
+date/time default to KST now. Omit fields with no value. The response returns a warnings array naming anything missing — fix that line via decision_log_amend instead of appending a correction line.`,
     inputSchema: decisionLogAppendInputSchema,
     async run(args, { memoryService }) {
       assertRequiredFields(args);
@@ -348,14 +343,13 @@ date/time default to KST now; pass only to override. result defaults to tbd; set
   tool({
     name: "decision_log_amend",
     description:
-      `Correct an existing decision line in the month partition under ${DECISION_LOG_DIR}/ and leave a separate audit entry. Use this instead of appending ad-hoc "정정 라인" when a previously logged line had a wrong/missing field (e.g. forgot pnl, result tbd→loss, "null" was written by mistake).
+      `Correct an existing decision line under ${DECISION_LOG_DIR}/ and leave an audit entry. Use this instead of appending an ad-hoc 정정 라인 when a logged line had a wrong/missing field.
 
-How it works:
-- find: a unique substring that locates the target line in that month's file (must match exactly one entry line; if 0 or 2+, it errors — make find more specific).
-- Then resend the FULL corrected fields (same fields as decision_log_append) — the line is rebuilt from them so formatting stays consistent. The original timestamp is preserved automatically; date/time are only used to pick the month partition.
-- An audit line ('✎ amend | reason=... | before=... | after=...') is inserted at the top of the same file, so every correction is traceable in-log (git history also records it).
+- find: a substring that matches exactly one entry line in that month's file (0 or 2+ matches errors — make it more specific).
+- Resend the FULL corrected fields (same as decision_log_append); the line is rebuilt from them. The original timestamp is preserved.
+- An audit line is inserted at the top of the same file, so corrections stay traceable.
 
-date selects the partition (entry's month); default = current month. reason is required and goes into the audit line.`,
+date selects the month partition (the entry's month, default current). reason is required.`,
     inputSchema: decisionLogAmendInputSchema,
     async run(args, { memoryService }) {
       assertRequiredFields(args);
