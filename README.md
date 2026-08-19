@@ -27,6 +27,7 @@ DART_API_KEY=your-opendart-api-key
 # 선택값
 COINGECKO_API_KEY=your-coingecko-demo-key
 MCP_TOOL_TIMEOUT_MS=55000
+ENABLED_TOOL_GROUPS=all
 PORT=3000
 ```
 
@@ -36,6 +37,13 @@ PORT=3000
 - `MCP_TOOL_TIMEOUT_MS`는 선택값(기본 `55000`)입니다. 클라이언트(예: Claude Desktop)의
   요청 타임아웃(기본 60초)보다 짧게 잡아, 클라이언트가 `this operation was aborted`로
   요청을 끊기 전에 서버가 실제 에러 메시지를 먼저 반환하도록 합니다.
+- `ENABLED_TOOL_GROUPS`는 선택값입니다. 등록할 도구 그룹을 쉼표로 지정합니다.
+  - 미설정(기본): 크립토 시세(`upbit`·`bithumb`·`binance`·`coingecko`)와 부동산(`naverland`·`molit`)을 뺀 나머지 그룹만 등록 → 도구 34개.
+  - `all`: 전체 13개 그룹 58개 도구.
+  - `telegram,memory`처럼 명시하면 그 그룹만 등록.
+  - 사용 가능한 그룹: `telegram`, `grok`, `yahoo`, `krx`, `upbit`, `bithumb`, `binance`, `coingecko`, `dart`, `naverland`, `tossinvest`, `molit`, `memory`.
+  - 배경: `tools/list` 응답은 클라이언트(Claude Desktop·claude.ai 커넥터 등)가 대화 시작마다 컨텍스트에 통째로 싣습니다. 전체 등록 시 약 49KB인데, 기본값 기준 약 30KB로 줄어듭니다. 코드는 남아 있으므로 필요한 그룹은 이 변수로 언제든 되살립니다.
+  - 기동 로그 `mcp.tools_registered`의 `groups`·`skipped` 필드로 실제 적용 결과를 확인할 수 있습니다. 알 수 없는 그룹명은 `mcp.unknown_tool_groups` 경고로 알립니다.
 - `PORT`는 선택값입니다. 로컬에서는 기본값 `3000`을 사용하고, Railway 배포 시에는 Railway가 자동으로 포트를 주입합니다.
 - 네이버 부동산 도구는 별도 API 키가 필요 없습니다(비공식 내부 API).
 

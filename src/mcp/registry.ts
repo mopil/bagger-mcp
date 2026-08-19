@@ -17,20 +17,88 @@ import { upbitTools } from "../tools/crypto/upbit/tools.js";
 import { yahooFinanceTools } from "../tools/yahoo-finance/tools.js";
 import type { ServiceRegistry } from "./services.js";
 
+// 도구를 그룹 단위로 묶어 ENABLED_TOOL_GROUPS로 켜고 끈다.
+// 배경: 58개 도구의 tools/list 페이로드가 ~50KB인데, Railway 7일 로그 집계상
+//   실제로 호출되는 건 12개뿐이었다. 클라이언트(claude.ai 커넥터 등)는 이 스키마를
+//   대화 시작마다 통째로 싣기 때문에, 안 쓰는 그룹은 등록하지 않는 편이 이득이다.
+//   코드는 남겨두고 등록만 건너뛰므로, 필요해지면 환경변수 한 줄로 되살린다.
+const ALL_GROUP_NAMES = [
+  "telegram",
+  "grok",
+  "yahoo",
+  "krx",
+  "upbit",
+  "bithumb",
+  "binance",
+  "coingecko",
+  "dart",
+  "naverland",
+  "tossinvest",
+  "molit",
+  "memory",
+] as const;
+
+type ToolGroupName = (typeof ALL_GROUP_NAMES)[number];
+
+// 기본 비활성: 7일 로그에서 호출 0회였고 상시 필요하지 않은 그룹(크립토 시세·부동산).
+// 계절적으로 필요해지면 ENABLED_TOOL_GROUPS에 추가하면 된다. grok(x_search)은 기본 유지.
+const DEFAULT_DISABLED_GROUPS: ToolGroupName[] = [
+  "upbit",
+  "bithumb",
+  "binance",
+  "coingecko",
+  "naverland",
+  "molit",
+];
+
+// ENABLED_TOOL_GROUPS 해석:
+//   미설정  → 기본 활성 집합(= 전체 - DEFAULT_DISABLED_GROUPS)
+//   "all"   → 전체
+//   "a,b,c" → 명시한 그룹만
+function resolveEnabledGroups(): Set<ToolGroupName> {
+  const raw = process.env.ENABLED_TOOL_GROUPS?.trim();
+
+  if (!raw) {
+    return new Set(ALL_GROUP_NAMES.filter((name) => !DEFAULT_DISABLED_GROUPS.includes(name)));
+  }
+
+  if (raw.toLowerCase() === "all") {
+    return new Set(ALL_GROUP_NAMES);
+  }
+
+  const requested = raw
+    .split(",")
+    .map((part) => part.trim().toLowerCase())
+    .filter(Boolean);
+
+  const unknown = requested.filter(
+    (name) => !(ALL_GROUP_NAMES as readonly string[]).includes(name),
+  );
+  if (unknown.length > 0) {
+    // 오타로 그룹이 통째로 사라지면 원인 추적이 어려우므로 기동 시점에 바로 알린다.
+    logger.warn("mcp.unknown_tool_groups", { unknown, known: ALL_GROUP_NAMES });
+  }
+
+  return new Set(ALL_GROUP_NAMES.filter((name) => requested.includes(name)));
+}
+
+const enabledGroups = resolveEnabledGroups();
+const on = (name: ToolGroupName) => enabledGroups.has(name);
+
 const registry = [
-  ...telegramTools,
-  ...grokTools,
-  ...yahooFinanceTools,
-  ...krxTools,
-  ...upbitTools,
-  ...bithumbTools,
-  ...binanceTools,
-  ...coingeckoTools,
-  ...dartTools,
-  ...naverlandTools,
-  ...tossInvestTools,
-  ...molitTools,
-  ...memoryTools,
+  ...(on("telegram") ? telegramTools : []),
+  ...(on("grok") ? grokTools : []),
+  ...(on("yahoo") ? yahooFinanceTools : []),
+  ...(on("krx") ? krxTools : []),
+  ...(on("upbit") ? upbitTools : []),
+  ...(on("bithumb") ? bithumbTools : []),
+  ...(on("binance") ? binanceTools : []),
+  ...(on("coingecko") ? coingeckoTools : []),
+  ...(on("dart") ? dartTools : []),
+  ...(on("naverland") ? naverlandTools : []),
+  ...(on("tossinvest") ? tossInvestTools : []),
+  ...(on("molit") ? molitTools : []),
+  ...(on("memory") ? memoryTools : []),
 ];
 
 function summarizeArgs(args: unknown): Record<string, unknown> {
@@ -113,5 +181,9 @@ export function registerTools(server: McpServer, services: ServiceRegistry): voi
     );
   }
 
-  logger.info("mcp.tools_registered", { count: registry.length });
+  logger.info("mcp.tools_registered", {
+    count: registry.length,
+    groups: [...enabledGroups],
+    skipped: ALL_GROUP_NAMES.filter((name) => !enabledGroups.has(name)),
+  });
 }
