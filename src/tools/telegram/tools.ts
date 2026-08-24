@@ -32,7 +32,7 @@ export const telegramTools = [
   tool({
     name: "telegram_send_message",
     description:
-      "Send a text message from the configured Telegram account. Defaults to the user's own Saved Messages; any other target must be listed in TELEGRAM_SEND_ALLOWLIST. Text longer than Telegram's 4096-character limit is split at line boundaries and sent as consecutive messages.",
+      "Send a text message to Telegram. via=\"account\" (default) sends from the configured user session — it defaults to the user's own Saved Messages and any other target must be listed in TELEGRAM_SEND_ALLOWLIST, but the user gets NO notification because it is their own outgoing message. via=\"bot\" sends through TELEGRAM_BOT_TOKEN instead, which arrives as an incoming message and does notify; target is then a chat_id (falls back to TELEGRAM_BOT_CHAT_ID). Text longer than Telegram's 4096-character limit is split at line boundaries and sent as consecutive messages.",
     inputSchema: telegramSendMessageInputSchema,
     run(args, { telegramService }) {
       return telegramService.sendMessage(toTelegramSendMessageParams(args));

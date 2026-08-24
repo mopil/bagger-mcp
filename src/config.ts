@@ -33,6 +33,9 @@ export interface AppConfig {
   telegramSession: string;
   // Saved Messages 외에 발신을 허용할 대화 식별자. 비어 있으면 Saved Messages 전용.
   telegramSendAllowlist: string[];
+  // 봇 발신용(선택). 설정하면 telegram_send_message의 via:"bot"을 쓸 수 있다.
+  telegramBotToken?: string;
+  telegramBotChatId?: string;
   xaiApiKey: string;
   githubToken: string;
   krxAuthKey: string;
@@ -65,6 +68,8 @@ export function getConfig(): AppConfig {
     telegramApiHash: requireEnv("TELEGRAM_API_HASH"),
     telegramSession: requireEnv("TELEGRAM_SESSION"),
     telegramSendAllowlist: parseList(process.env.TELEGRAM_SEND_ALLOWLIST),
+    telegramBotToken: process.env.TELEGRAM_BOT_TOKEN?.trim() || undefined,
+    telegramBotChatId: process.env.TELEGRAM_BOT_CHAT_ID?.trim() || undefined,
     xaiApiKey: requireEnv("XAI_API_KEY"),
     githubToken: requireEnv("GITHUB_TOKEN"),
     krxAuthKey: requireEnv("KRX_AUTH_KEY"),

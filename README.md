@@ -27,6 +27,8 @@ DART_API_KEY=your-opendart-api-key
 # 선택값
 COINGECKO_API_KEY=your-coingecko-demo-key
 TELEGRAM_SEND_ALLOWLIST=
+TELEGRAM_BOT_TOKEN=
+TELEGRAM_BOT_CHAT_ID=
 MCP_TOOL_TIMEOUT_MS=55000
 ENABLED_TOOL_GROUPS=all
 PORT=3000
@@ -39,6 +41,11 @@ PORT=3000
   - 미설정(기본): Saved Messages(`me`)로만 발송 가능. 그 외 대상은 거부됩니다.
   - 세션이 유출돼도 계정이 스팸 발신에 쓰이지 않도록 하는 안전장치라, **꼭 필요한 대화만** 넣으세요.
   - 값은 `telegram_list_channels`가 돌려주는 `accessKey`(username 또는 id)나 정확한 채널 제목을 씁니다. 예: `my-alerts-channel,2135509185`
+- `TELEGRAM_BOT_TOKEN` / `TELEGRAM_BOT_CHAT_ID`는 선택값입니다. `telegram_send_message`의 `via:"bot"` 경로에 씁니다.
+  - **왜 필요한가**: `via:"account"`(기본)는 내 세션으로 보내므로 내가 보낸 메시지가 되고, 그래서 **나에게 알림이 오지 않습니다**(Saved Messages든 다른 대화든 동일). 알림을 받으려면 봇이 나에게 보내야 합니다.
+  - `TELEGRAM_BOT_TOKEN`: @BotFather에서 발급.
+  - `TELEGRAM_BOT_CHAT_ID`: 수신자 chat_id. 도구 호출 시 `target`으로 덮어쓸 수 있습니다.
+  - 봇은 상대가 먼저 해당 봇에게 `/start`를 보낸 대화에만 메시지를 보낼 수 있습니다.
 - `MCP_TOOL_TIMEOUT_MS`는 선택값(기본 `55000`)입니다. 클라이언트(예: Claude Desktop)의
   요청 타임아웃(기본 60초)보다 짧게 잡아, 클라이언트가 `this operation was aborted`로
   요청을 끊기 전에 서버가 실제 에러 메시지를 먼저 반환하도록 합니다.

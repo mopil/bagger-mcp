@@ -27,6 +27,11 @@ export const telegramSendMessageInputSchema = {
   text: z.string().min(1).max(TELEGRAM_MESSAGE_MAX_LENGTH),
   target: optionalStringSchema,
   silent: z.boolean().nullish(),
+  /**
+   * "account"(기본): 설정된 사용자 세션으로 발송. 내가 보낸 메시지라 나에게 알림이 오지 않는다.
+   * "bot": TELEGRAM_BOT_TOKEN 봇으로 발송. 나에게는 수신 메시지가 되므로 알림이 온다.
+   */
+  via: z.enum(["account", "bot"]).nullish(),
 } satisfies z.ZodRawShape;
 
 const telegramListChannelsObjectSchema = z.object(telegramListChannelsInputSchema);
@@ -58,10 +63,13 @@ export function toTelegramListDialogsParams(input: TelegramListChannelsInput): T
   };
 }
 
+export type TelegramSendVia = "account" | "bot";
+
 export interface TelegramSendMessageParams {
   text: string;
   target?: string;
   silent?: boolean;
+  via?: TelegramSendVia;
 }
 
 export function toTelegramSendMessageParams(input: TelegramSendMessageInput): TelegramSendMessageParams {
@@ -69,6 +77,7 @@ export function toTelegramSendMessageParams(input: TelegramSendMessageInput): Te
     text: input.text,
     target: input.target ?? undefined,
     silent: input.silent ?? undefined,
+    via: input.via ?? undefined,
   };
 }
 

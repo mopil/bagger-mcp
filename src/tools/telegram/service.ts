@@ -36,10 +36,15 @@ interface TelegramClientOptions {
    * 비어 있으면 Saved Messages로만 보낼 수 있다. 계정 도용 시 스팸 발신을 막는 안전장치.
    */
   sendAllowlist?: string[];
+  /** 봇 발신용 토큰(선택). 없으면 via:"bot" 사용 불가. */
+  botToken?: string;
+  /** 봇 발신 기본 수신자 chat_id(선택). target 미지정 시 사용. */
+  botChatId?: string;
 }
 
 export interface TelegramSendMessageResult {
   [key: string]: unknown;
+  via: "account" | "bot";
   target: string;
   dialog: TelegramDialogSummary | null;
   chunks: number;
@@ -145,6 +150,10 @@ export class TelegramService {
    * 4096자 한도를 넘는 본문은 줄 경계에서 나눠 순차 발송한다.
    */
   async sendMessage(params: TelegramSendMessageParams): Promise<TelegramSendMessageResult> {
+    if (params.via === "bot") {
+      return this.sendViaBot(params);
+    }
+
     await this.ensureConnected();
 
     const client = this.getOrCreateClient();
@@ -178,8 +187,61 @@ export class TelegramService {
     }
 
     return {
+      via: "account",
       target: isSelf ? "me" : peer,
       dialog,
+      chunks: chunks.length,
+      messageIds,
+    };
+  }
+
+  /**
+   * Bot API로 발송한다. 사용자 세션 발신과 달리 사용자에게 '수신 메시지'가 되므로 알림이 뜬다.
+   * 봇은 상대가 먼저 /start 한 대화에만 보낼 수 있다.
+   */
+  private async sendViaBot(params: TelegramSendMessageParams): Promise<TelegramSendMessageResult> {
+    const token = this.options.botToken;
+    if (!token) {
+      throw new Error('via:"bot" requires TELEGRAM_BOT_TOKEN to be configured on the server.');
+    }
+
+    const chatId = params.target?.trim() || this.options.botChatId;
+    if (!chatId) {
+      throw new Error('via:"bot" requires a target chat_id, or TELEGRAM_BOT_CHAT_ID to be configured.');
+    }
+
+    const chunks = splitMessage(params.text, MESSAGE_CHUNK_LIMIT);
+    const messageIds: number[] = [];
+
+    for (const chunk of chunks) {
+      const response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          chat_id: chatId,
+          text: chunk,
+          disable_notification: params.silent ?? false,
+        }),
+      });
+
+      const payload = (await response.json()) as {
+        ok: boolean;
+        description?: string;
+        result?: { message_id?: number };
+      };
+
+      if (!response.ok || !payload.ok) {
+        // 토큰이 에러 메시지에 실려 나가지 않도록 description만 전달한다.
+        throw new Error(`Telegram Bot API error: ${payload.description ?? response.status}`);
+      }
+
+      messageIds.push(Number(payload.result?.message_id));
+    }
+
+    return {
+      via: "bot",
+      target: chatId,
+      dialog: null,
       chunks: chunks.length,
       messageIds,
     };
