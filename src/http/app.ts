@@ -35,6 +35,7 @@ export function createApp(config: AppConfig) {
       apiId: config.telegramApiId,
       apiHash: config.telegramApiHash,
       session: config.telegramSession,
+      sendAllowlist: config.telegramSendAllowlist,
     }),
     grokService: new GrokService({ apiKey: config.xaiApiKey }),
     yahooFinanceService: new YahooFinanceService(),

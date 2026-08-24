@@ -1,7 +1,11 @@
 import { Api } from "telegram";
 import { TelegramClient } from "telegram";
 import { StringSession } from "telegram/sessions/index.js";
-import type { TelegramListDialogsParams, TelegramReadChannelsParams } from "./schema.js";
+import type {
+  TelegramListDialogsParams,
+  TelegramReadChannelsParams,
+  TelegramSendMessageParams,
+} from "./schema.js";
 
 export type TelegramDialogType = "channel" | "group" | "user";
 
@@ -27,9 +31,34 @@ interface TelegramClientOptions {
   apiId: number;
   apiHash: string;
   session: string;
+  /**
+   * 자기 자신(Saved Messages) 외에 발신을 허용할 대화 식별자 목록.
+   * 비어 있으면 Saved Messages로만 보낼 수 있다. 계정 도용 시 스팸 발신을 막는 안전장치.
+   */
+  sendAllowlist?: string[];
+}
+
+export interface TelegramSendMessageResult {
+  [key: string]: unknown;
+  target: string;
+  dialog: TelegramDialogSummary | null;
+  chunks: number;
+  messageIds: number[];
 }
 
 const DIALOG_CACHE_TTL_MS = 5 * 60_000;
+
+/** 텔레그램 단일 메시지 한도는 4096자. 마크다운 여유를 두고 자른다. */
+const MESSAGE_CHUNK_LIMIT = 3_900;
+
+const SELF_TARGET_ALIASES = new Set([
+  "me",
+  "self",
+  "saved",
+  "saved messages",
+  "savedmessages",
+  "저장한 메시지",
+]);
 
 function normalize(value: string): string {
   return value.trim().toLowerCase();
@@ -108,6 +137,63 @@ export class TelegramService {
     );
 
     return { channels };
+  }
+
+  /**
+   * 설정된 세션 계정으로 메시지를 보낸다.
+   * 기본 대상은 Saved Messages("me")이며, 그 외 대상은 sendAllowlist에 등록된 경우에만 허용한다.
+   * 4096자 한도를 넘는 본문은 줄 경계에서 나눠 순차 발송한다.
+   */
+  async sendMessage(params: TelegramSendMessageParams): Promise<TelegramSendMessageResult> {
+    await this.ensureConnected();
+
+    const client = this.getOrCreateClient();
+    const rawTarget = params.target?.trim() || "me";
+    const isSelf = SELF_TARGET_ALIASES.has(normalize(rawTarget));
+
+    let peer = "me";
+    let dialog: TelegramDialogSummary | null = null;
+
+    if (!isSelf) {
+      if (!this.isSendAllowed(rawTarget)) {
+        throw new Error(
+          `Target is not allowed: ${rawTarget}. Only Saved Messages ("me") is permitted unless the target is listed in TELEGRAM_SEND_ALLOWLIST.`,
+        );
+      }
+
+      dialog = resolveDialog(await this.getDialogsCached(), rawTarget);
+      peer = dialog.accessKey;
+    }
+
+    const chunks = splitMessage(params.text, MESSAGE_CHUNK_LIMIT);
+    const messageIds: number[] = [];
+
+    for (const chunk of chunks) {
+      const sent = await client.sendMessage(peer, {
+        message: chunk,
+        silent: params.silent ?? false,
+      });
+
+      messageIds.push(Number(sent.id));
+    }
+
+    return {
+      target: isSelf ? "me" : peer,
+      dialog,
+      chunks: chunks.length,
+      messageIds,
+    };
+  }
+
+  private isSendAllowed(target: string): boolean {
+    const allowlist = this.options.sendAllowlist ?? [];
+    if (allowlist.length === 0) {
+      return false;
+    }
+
+    const query = normalize(target);
+
+    return allowlist.some((entry) => normalize(entry) === query);
   }
 
   private async ensureConnected(): Promise<void> {
@@ -234,6 +320,50 @@ export class TelegramService {
       nextOffsetId: oldestMessage?.id ?? null,
     };
   }
+}
+
+/** 줄 경계를 우선 지키며 limit 이하 청크로 나눈다. 한 줄이 limit보다 길면 그 줄만 강제 분할. */
+function splitMessage(text: string, limit: number): string[] {
+  if (text.length <= limit) {
+    return [text];
+  }
+
+  const chunks: string[] = [];
+  let current = "";
+
+  for (const line of text.split("\n")) {
+    const pieces = line.length > limit ? hardSplit(line, limit) : [line];
+
+    for (const piece of pieces) {
+      const candidate = current ? `${current}\n${piece}` : piece;
+
+      if (candidate.length > limit) {
+        if (current) {
+          chunks.push(current);
+        }
+
+        current = piece;
+      } else {
+        current = candidate;
+      }
+    }
+  }
+
+  if (current) {
+    chunks.push(current);
+  }
+
+  return chunks;
+}
+
+function hardSplit(line: string, limit: number): string[] {
+  const pieces: string[] = [];
+
+  for (let index = 0; index < line.length; index += limit) {
+    pieces.push(line.slice(index, index + limit));
+  }
+
+  return pieces;
 }
 
 function normalizeHours(hours = 24): number {

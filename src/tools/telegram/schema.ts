@@ -21,11 +21,21 @@ export const telegramReadChannelsInputSchema = {
   limit: optionalIntSchema(200),
 } satisfies z.ZodRawShape;
 
+export const TELEGRAM_MESSAGE_MAX_LENGTH = 40_000;
+
+export const telegramSendMessageInputSchema = {
+  text: z.string().min(1).max(TELEGRAM_MESSAGE_MAX_LENGTH),
+  target: optionalStringSchema,
+  silent: z.boolean().nullish(),
+} satisfies z.ZodRawShape;
+
 const telegramListChannelsObjectSchema = z.object(telegramListChannelsInputSchema);
 const telegramReadChannelsObjectSchema = z.object(telegramReadChannelsInputSchema);
+const telegramSendMessageObjectSchema = z.object(telegramSendMessageInputSchema);
 
 export type TelegramListChannelsInput = z.infer<typeof telegramListChannelsObjectSchema>;
 export type TelegramReadChannelsInput = z.infer<typeof telegramReadChannelsObjectSchema>;
+export type TelegramSendMessageInput = z.infer<typeof telegramSendMessageObjectSchema>;
 
 export interface TelegramListDialogsParams {
   query?: string;
@@ -45,6 +55,20 @@ export function toTelegramListDialogsParams(input: TelegramListChannelsInput): T
   return {
     query: input.query ?? undefined,
     limit: input.limit ?? undefined,
+  };
+}
+
+export interface TelegramSendMessageParams {
+  text: string;
+  target?: string;
+  silent?: boolean;
+}
+
+export function toTelegramSendMessageParams(input: TelegramSendMessageInput): TelegramSendMessageParams {
+  return {
+    text: input.text,
+    target: input.target ?? undefined,
+    silent: input.silent ?? undefined,
   };
 }
 

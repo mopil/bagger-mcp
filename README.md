@@ -26,6 +26,7 @@ KRX_AUTH_KEY=your-krx-openapi-auth-key
 DART_API_KEY=your-opendart-api-key
 # 선택값
 COINGECKO_API_KEY=your-coingecko-demo-key
+TELEGRAM_SEND_ALLOWLIST=
 MCP_TOOL_TIMEOUT_MS=55000
 ENABLED_TOOL_GROUPS=all
 PORT=3000
@@ -34,6 +35,10 @@ PORT=3000
 - `KRX_AUTH_KEY`는 [KRX Data Marketplace OpenAPI](https://openapi.krx.co.kr/)에서 가입 후 활용신청 → 관리자 승인 후 발급됩니다. 일 호출 한도 10,000건, 비상업용.
 - `DART_API_KEY`는 [OpenDART](https://opendart.fss.or.kr/)에서 무료 발급합니다.
 - `COINGECKO_API_KEY`는 선택값입니다. 없으면 공개 엔드포인트로, 있으면 Demo 키로 호출합니다.
+- `TELEGRAM_SEND_ALLOWLIST`는 선택값입니다. `telegram_send_message`가 **자기 자신(Saved Messages) 외에** 보낼 수 있는 대화를 쉼표로 지정합니다.
+  - 미설정(기본): Saved Messages(`me`)로만 발송 가능. 그 외 대상은 거부됩니다.
+  - 세션이 유출돼도 계정이 스팸 발신에 쓰이지 않도록 하는 안전장치라, **꼭 필요한 대화만** 넣으세요.
+  - 값은 `telegram_list_channels`가 돌려주는 `accessKey`(username 또는 id)나 정확한 채널 제목을 씁니다. 예: `my-alerts-channel,2135509185`
 - `MCP_TOOL_TIMEOUT_MS`는 선택값(기본 `55000`)입니다. 클라이언트(예: Claude Desktop)의
   요청 타임아웃(기본 60초)보다 짧게 잡아, 클라이언트가 `this operation was aborted`로
   요청을 끊기 전에 서버가 실제 에러 메시지를 먼저 반환하도록 합니다.

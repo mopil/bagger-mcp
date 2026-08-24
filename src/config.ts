@@ -13,12 +13,26 @@ function requireEnv(name: string): EnvValue {
   return value;
 }
 
+/** 쉼표로 구분된 환경변수를 트림된 문자열 배열로. 미설정이면 빈 배열. */
+function parseList(raw: string | undefined): string[] {
+  if (!raw) {
+    return [];
+  }
+
+  return raw
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+}
+
 export interface AppConfig {
   port: number;
   pathSecret: string;
   telegramApiId: number;
   telegramApiHash: string;
   telegramSession: string;
+  // Saved Messages 외에 발신을 허용할 대화 식별자. 비어 있으면 Saved Messages 전용.
+  telegramSendAllowlist: string[];
   xaiApiKey: string;
   githubToken: string;
   krxAuthKey: string;
@@ -50,6 +64,7 @@ export function getConfig(): AppConfig {
     telegramApiId,
     telegramApiHash: requireEnv("TELEGRAM_API_HASH"),
     telegramSession: requireEnv("TELEGRAM_SESSION"),
+    telegramSendAllowlist: parseList(process.env.TELEGRAM_SEND_ALLOWLIST),
     xaiApiKey: requireEnv("XAI_API_KEY"),
     githubToken: requireEnv("GITHUB_TOKEN"),
     krxAuthKey: requireEnv("KRX_AUTH_KEY"),
